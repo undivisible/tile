@@ -1,0 +1,27 @@
+[package]
+name = "tile_overlay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tile_core = { path = "../tile_core" }
+log = "0.4"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSString",
+    "NSGeometry",
+    "NSThread",
+    "NSArray",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSWindow",
+    "NSView",
+    "NSColor",
+    "NSGraphicsContext",
+    "NSGraphics",
+    "NSScreen",
+    "NSBezierPath",
+] }
+core-foundation = "0.10"
+core-graphics = "0.24"

@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/tile_core",
+    "crates/tile_ax",
+    "crates/tile_hotkeys",
+    "crates/tile_overlay",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[package]
+name = "tile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tile"
+path = "src/main.rs"
+
+[dependencies]
+tile_core = { path = "crates/tile_core" }
+tile_ax = { path = "crates/tile_ax" }
+tile_hotkeys = { path = "crates/tile_hotkeys" }
+tile_overlay = { path = "crates/tile_overlay" }
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSRunLoop", "NSDate", "NSString", "NSThread"] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSMenu",
+    "NSMenuItem",
+    "NSImage",
+    "NSRunningApplication",
+    "NSWorkspace",
+    "NSEvent",
+] }
