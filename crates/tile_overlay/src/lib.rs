@@ -5,11 +5,28 @@
 
 use core_foundation::base::TCFType as _;
 use log::debug;
-use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSColor, NSScreen, NSView, NSWindow, NSWindowStyleMask};
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 use tile_core::Rect;
+
+/// Set a CGColorRef property on a CALayer using a typed function pointer cast.
+/// We can't use objc2's msg_send! because it rejects CGColorRef (opaque C type).
+/// We also can't declare objc_msgSend as variadic — ARM64 uses different calling
+/// conventions for variadic vs non-variadic functions.
+unsafe fn layer_set_cgcolor(layer: &objc2::runtime::AnyObject, sel: objc2::runtime::Sel, color: core_graphics::sys::CGColorRef) {
+    // Cast objc_msgSend to the exact signature CALayer expects: (id, SEL, CGColorRef) -> void
+    type SetColorFn = unsafe extern "C" fn(*const objc2::runtime::AnyObject, objc2::runtime::Sel, core_graphics::sys::CGColorRef);
+    let msg_send: SetColorFn = std::mem::transmute(objc2::ffi::objc_msgSend as *const ());
+    msg_send(layer as *const _, sel, color);
+}
+
+/// Set an f64 property on a CALayer.
+unsafe fn layer_set_f64(layer: &objc2::runtime::AnyObject, sel: objc2::runtime::Sel, value: f64) {
+    type SetF64Fn = unsafe extern "C" fn(*const objc2::runtime::AnyObject, objc2::runtime::Sel, f64);
+    let msg_send: SetF64Fn = std::mem::transmute(objc2::ffi::objc_msgSend as *const ());
+    msg_send(layer as *const _, sel, value);
+}
 
 /// Configuration for overlay appearance.
 #[derive(Debug, Clone)]
@@ -62,7 +79,8 @@ impl OverlayManager {
         window.orderFront(None);
     }
 
-    /// Hide the overlay.
+    /// Hide the overlay. Must be called from the main thread (NSEvent global
+    /// monitors always deliver on the main thread, so this is safe from drag callbacks).
     pub fn hide(&mut self) {
         if let Some(ref window) = self.window {
             window.orderOut(None);
@@ -132,29 +150,27 @@ fn create_overlay_view(config: &OverlayConfig, frame: NSRect, mtm: MainThreadMar
     view.setWantsLayer(true);
 
     if let Some(layer) = view.layer() {
-        // Set background color via raw pointer cast (CGColorRef is not objc2-compatible)
-        let cg_color = core_graphics::color::CGColor::rgb(
+        let bg_color = core_graphics::color::CGColor::rgb(
             config.color.0,
             config.color.1,
             config.color.2,
             config.color.3,
         );
-        let color_ptr = cg_color.as_concrete_TypeRef() as *const std::ffi::c_void;
-        let _: () = unsafe { msg_send![&layer, setBackgroundColor: color_ptr] };
+        unsafe {
+            layer_set_cgcolor(&layer, objc2::sel!(setBackgroundColor:), bg_color.as_concrete_TypeRef());
+            layer_set_f64(&layer, objc2::sel!(setCornerRadius:), config.corner_radius);
+        }
 
-        // Corner radius
-        let _: () = unsafe { msg_send![&layer, setCornerRadius: config.corner_radius] };
-
-        // Border
         let border_color = core_graphics::color::CGColor::rgb(
             config.border_color.0,
             config.border_color.1,
             config.border_color.2,
             config.border_color.3,
         );
-        let border_ptr = border_color.as_concrete_TypeRef() as *const std::ffi::c_void;
-        let _: () = unsafe { msg_send![&layer, setBorderColor: border_ptr] };
-        let _: () = unsafe { msg_send![&layer, setBorderWidth: config.border_width] };
+        unsafe {
+            layer_set_cgcolor(&layer, objc2::sel!(setBorderColor:), border_color.as_concrete_TypeRef());
+            layer_set_f64(&layer, objc2::sel!(setBorderWidth:), config.border_width);
+        }
     }
 
     view
