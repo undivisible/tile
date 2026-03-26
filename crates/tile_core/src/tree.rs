@@ -541,6 +541,50 @@ impl TileTree {
         }
     }
 
+    /// Cycle the active tab in a stacked pane.
+    /// `forward = true` means next tab, `false` means previous tab.
+    /// Returns the index of the newly active tab, or None if the pane was not found
+    /// or has fewer than 2 tabs.
+    pub fn cycle_tab(&mut self, pane_id: NodeId, forward: bool) -> Option<usize> {
+        if let Some(Node::Pane { tabs, active, id: _, .. }) = self.root.find_mut(pane_id) {
+            if tabs.len() < 2 {
+                return None;
+            }
+            if forward {
+                *active = (*active + 1) % tabs.len();
+            } else {
+                *active = if *active == 0 {
+                    tabs.len() - 1
+                } else {
+                    *active - 1
+                };
+            }
+            Some(*active)
+        } else {
+            None
+        }
+    }
+
+    /// Compute a frame for snapping a window beside a target window (floating, not BSP).
+    /// The snapped window gets the same height and y as the target, and is placed on the
+    /// given side with a width equal to its current width (clamped to half screen width).
+    pub fn snap_window_beside(
+        target_frame: Rect,
+        source_frame: Rect,
+        side: crate::types::SnapSide,
+        screen: Rect,
+    ) -> Rect {
+        let snap_width = source_frame.width.min(screen.width / 2.0);
+        let x = match side {
+            crate::types::SnapSide::Left => (target_frame.x - snap_width).max(screen.x),
+            crate::types::SnapSide::Right => {
+                let x = target_frame.x + target_frame.width;
+                x.min(screen.x + screen.width - snap_width)
+            }
+        };
+        Rect::new(x, target_frame.y, snap_width, target_frame.height)
+    }
+
     /// Swap two panes' contents.
     pub fn swap_panes(&mut self, a: NodeId, b: NodeId) {
         // Collect tabs from both panes
@@ -640,5 +684,105 @@ mod tests {
         let restored = Node::deserialize(&json).unwrap();
         assert_eq!(restored.pane_count(), 2);
         assert_eq!(restored.window_count(), 2);
+    }
+
+    #[test]
+    fn test_cycle_tab() {
+        let mut tree = TileTree::new();
+        // Add first window — goes into root pane
+        tree.add_window(test_window("win1"));
+        let pane_id = tree.focused_pane.unwrap();
+
+        // Stack a second window into the same pane
+        tree.root.stack_window(pane_id, test_window("win2"));
+        tree.root.stack_window(pane_id, test_window("win3"));
+
+        // Active should be 2 (last stacked)
+        if let Some(Node::Pane { active, .. }) = tree.root.find(pane_id) {
+            assert_eq!(*active, 2);
+        }
+
+        // Cycle forward: 2 -> 0
+        let result = tree.cycle_tab(pane_id, true);
+        assert_eq!(result, Some(0));
+
+        // Cycle forward: 0 -> 1
+        let result = tree.cycle_tab(pane_id, true);
+        assert_eq!(result, Some(1));
+
+        // Cycle backward: 1 -> 0
+        let result = tree.cycle_tab(pane_id, false);
+        assert_eq!(result, Some(0));
+
+        // Cycle backward: 0 -> 2 (wraps)
+        let result = tree.cycle_tab(pane_id, false);
+        assert_eq!(result, Some(2));
+    }
+
+    #[test]
+    fn test_cycle_tab_single_window() {
+        let mut tree = TileTree::new();
+        tree.add_window(test_window("win1"));
+        let pane_id = tree.focused_pane.unwrap();
+
+        // Should return None for single-window pane
+        assert_eq!(tree.cycle_tab(pane_id, true), None);
+        assert_eq!(tree.cycle_tab(pane_id, false), None);
+    }
+
+    #[test]
+    fn test_snap_window_beside_right() {
+        let screen = Rect::new(0.0, 0.0, 1920.0, 1080.0);
+        let target = Rect::new(100.0, 50.0, 800.0, 600.0);
+        let source = Rect::new(0.0, 0.0, 500.0, 400.0);
+
+        let result = TileTree::snap_window_beside(
+            target,
+            source,
+            crate::types::SnapSide::Right,
+            screen,
+        );
+
+        // Should be placed to the right of target, matching target height
+        assert_eq!(result.x, 900.0); // target.x + target.width
+        assert_eq!(result.y, 50.0); // same y as target
+        assert_eq!(result.width, 500.0); // source width preserved
+        assert_eq!(result.height, 600.0); // target height
+    }
+
+    #[test]
+    fn test_snap_window_beside_left() {
+        let screen = Rect::new(0.0, 0.0, 1920.0, 1080.0);
+        let target = Rect::new(500.0, 50.0, 800.0, 600.0);
+        let source = Rect::new(0.0, 0.0, 400.0, 400.0);
+
+        let result = TileTree::snap_window_beside(
+            target,
+            source,
+            crate::types::SnapSide::Left,
+            screen,
+        );
+
+        // Should be placed to the left of target
+        assert_eq!(result.x, 100.0); // target.x - source.width
+        assert_eq!(result.y, 50.0);
+        assert_eq!(result.width, 400.0);
+        assert_eq!(result.height, 600.0);
+    }
+
+    #[test]
+    fn test_snap_window_beside_clamps_to_screen() {
+        let screen = Rect::new(0.0, 0.0, 1920.0, 1080.0);
+        let target = Rect::new(100.0, 50.0, 800.0, 600.0);
+        let source = Rect::new(0.0, 0.0, 500.0, 400.0);
+
+        // Snap left — would go to x=-400, should clamp to 0
+        let result = TileTree::snap_window_beside(
+            target,
+            source,
+            crate::types::SnapSide::Left,
+            screen,
+        );
+        assert_eq!(result.x, 0.0); // clamped to screen.x
     }
 }

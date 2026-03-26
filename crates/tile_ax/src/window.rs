@@ -1,7 +1,7 @@
 //! Window management via the Accessibility API.
 
 use crate::accessibility::*;
-use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+use core_foundation::base::{CFRelease, CFRetain, CFTypeRef, TCFType};
 use core_foundation::string::CFString;
 use objc2_app_kit::NSWorkspace;
 use std::ptr;
@@ -22,6 +22,10 @@ pub fn get_frontmost_app() -> Option<AppInfo> {
 }
 
 /// Get the focused window of the frontmost application.
+///
+/// The returned `CFTypeRef` is an owned reference from `AXUIElementCopyAttributeValue`.
+/// The caller **must** call `release_frontmost_window` (or `CFRelease`) on the
+/// `CFTypeRef` when it is no longer needed.
 pub fn get_frontmost_window() -> Option<(CFTypeRef, AXWindowRef, AppInfo)> {
     let app_info = get_frontmost_app()?;
     unsafe {
@@ -46,6 +50,15 @@ pub fn get_frontmost_window() -> Option<(CFTypeRef, AXWindowRef, AppInfo)> {
     }
 }
 
+/// Release the window element returned by `get_frontmost_window`.
+pub fn release_frontmost_window(element: CFTypeRef) {
+    if !element.is_null() {
+        unsafe {
+            CFRelease(element);
+        }
+    }
+}
+
 /// Get the frame of a window via its AX element.
 pub fn get_window_frame_raw(element: CFTypeRef) -> Option<Rect> {
     let (x, y) = ax_get_position(element)?;
@@ -63,11 +76,13 @@ pub fn get_window_frame(ax_ref: &AXWindowRef) -> Option<Rect> {
         let windows = get_ax_windows(app_element);
         CFRelease(app_element);
 
-        if ax_ref.window_index < windows.len() {
+        let result = if ax_ref.window_index < windows.len() {
             get_window_frame_raw(windows[ax_ref.window_index])
         } else {
             None
-        }
+        };
+        release_ax_windows(&windows);
+        result
     }
 }
 
@@ -91,6 +106,7 @@ pub fn set_window_frame(ax_ref: &AXWindowRef, frame: Rect) {
         if ax_ref.window_index < windows.len() {
             set_window_frame_raw(windows[ax_ref.window_index], frame);
         }
+        release_ax_windows(&windows);
         CFRelease(app_element);
     }
 }
@@ -106,6 +122,7 @@ pub fn focus_window(ax_ref: &AXWindowRef) {
         if ax_ref.window_index < windows.len() {
             ax_perform_action(windows[ax_ref.window_index], "AXRaise");
         }
+        release_ax_windows(&windows);
         CFRelease(app_element);
 
         // Also activate the application via NSRunningApplication
@@ -182,6 +199,7 @@ pub fn list_visible_windows() -> Vec<WindowInfo> {
                 }
             }
 
+            release_ax_windows(&windows);
             CFRelease(app_element);
         }
     }
@@ -208,12 +226,21 @@ unsafe fn get_ax_windows(app_element: CFTypeRef) -> Vec<CFTypeRef> {
     for i in 0..count {
         let item = core_foundation::array::CFArrayGetValueAtIndex(value as *const _, i);
         if !item.is_null() {
+            CFRetain(item as CFTypeRef);
             windows.push(item as CFTypeRef);
         }
     }
-    // Don't release value here — it's owned by the caller's scope
-    // Actually we got it from CopyAttributeValue so we do own it, but the
-    // individual elements are borrowed. We'll leak the array to keep elements valid.
-    // In practice this is a small leak per call. For production code, hold the array.
+    // Each element has been individually retained, so we can safely release the array.
+    CFRelease(value);
     windows
+}
+
+/// Release AX window element references returned by `get_ax_windows`.
+/// Callers must invoke this when they are done using the window pointers.
+pub fn release_ax_windows(windows: &[CFTypeRef]) {
+    for &w in windows {
+        unsafe {
+            CFRelease(w);
+        }
+    }
 }

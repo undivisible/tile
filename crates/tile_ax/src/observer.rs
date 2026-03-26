@@ -34,13 +34,20 @@ pub struct WindowObserverManager {
     observers: HashMap<i32, CFTypeRef>,
     /// Shared state for callbacks
     state: Arc<Mutex<ObserverState>>,
+    /// Raw pointer to the Arc, created once and reused for all observer refcons.
+    /// We hold one extra Arc ref count for this pointer; it is reclaimed in Drop.
+    state_raw: *const Mutex<ObserverState>,
 }
 
 impl WindowObserverManager {
     pub fn new(callback: WindowEventCallback) -> Self {
+        let state = Arc::new(Mutex::new(ObserverState { callback }));
+        // Create one raw pointer from an extra Arc clone; reclaimed in Drop.
+        let state_raw = Arc::into_raw(state.clone());
         Self {
             observers: HashMap::new(),
-            state: Arc::new(Mutex::new(ObserverState { callback })),
+            state,
+            state_raw,
         }
     }
 
@@ -64,8 +71,8 @@ impl WindowObserverManager {
                 return false;
             }
 
-            // Create a raw pointer to our shared state for the refcon
-            let state_ptr = Arc::into_raw(self.state.clone()) as *mut c_void;
+            // Reuse the single raw pointer created in new() for the refcon
+            let state_ptr = self.state_raw as *mut c_void;
 
             // Register for notifications
             let notifications = [
@@ -140,6 +147,10 @@ impl WindowObserverManager {
 impl Drop for WindowObserverManager {
     fn drop(&mut self) {
         self.stop_all();
+        // Reclaim the Arc ref count held by the raw pointer created in new().
+        unsafe {
+            Arc::from_raw(self.state_raw);
+        }
     }
 }
 

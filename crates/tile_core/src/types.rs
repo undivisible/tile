@@ -205,6 +205,13 @@ pub enum TileAction {
     SwapPaneRight,
     SwapPaneUp,
     SwapPaneDown,
+
+    // Stacking / scroll-to-switch
+    StackNext,
+    StackPrev,
+
+    // Snap beside nearest window (floating, not BSP)
+    SnapToNearest,
 }
 
 impl TileAction {
@@ -267,6 +274,13 @@ impl TileAction {
             _ => None,
         }
     }
+}
+
+/// Which side to snap a window beside another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapSide {
+    Left,
+    Right,
 }
 
 /// Gap configuration for tiling.

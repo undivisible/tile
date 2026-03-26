@@ -6,14 +6,25 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSMenu, NSMenuItem, NSStatusBar,
 };
 use objc2_foundation::{ns_string, MainThreadMarker, NSString};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 use tile_ax::WindowObserverManager;
-use tile_core::{Direction, Node, Rect, TileAction, TileTree};
-use tile_hotkeys::HotkeyManager;
+use tile_core::{Direction, Node, Rect, SnapSide, TileAction, TileTree};
+use tile_hotkeys::{HotkeyManager, ScrollMonitor};
 use tile_overlay::{OverlayConfig, OverlayManager};
 
-use crate::drag::DragMonitor;
+use crate::drag::{DragMonitor, PendingModDrag};
+
+/// Lock the AppState mutex, recovering from poison if necessary.
+pub(crate) fn lock_state(state: &Mutex<AppState>) -> MutexGuard<'_, AppState> {
+    match state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!("State mutex poisoned, recovering");
+            poisoned.into_inner()
+        }
+    }
+}
 
 /// The main Tile application.
 pub struct TileApp {
@@ -53,6 +64,12 @@ impl TileApp {
             }
         }
 
+        // Set up scroll monitor for Opt+Ctrl+Scroll stack cycling
+        let state_for_scroll = state.clone();
+        let _scroll_monitor = ScrollMonitor::new(Box::new(move |action| {
+            handle_action(&state_for_scroll, action);
+        }));
+
         // Set up drag monitor
         let _drag_monitor = DragMonitor::new(mtm, state.clone());
 
@@ -61,10 +78,10 @@ impl TileApp {
             let state_for_observer = state.clone();
             let observer = WindowObserverManager::new(Box::new(move |event| {
                 debug!("Window event: {:?}", event);
-                let mut st = state_for_observer.lock().unwrap();
+                let mut st = lock_state(&state_for_observer);
                 st.needs_relayout = true;
             }));
-            let mut st = state.lock().unwrap();
+            let mut st = lock_state(&state);
             st.observer = Some(observer);
         }
 
@@ -86,6 +103,8 @@ pub struct AppState {
     pub cycle_index: usize,
     pub original_frames: Vec<(i32, Rect)>,
     pub needs_relayout: bool,
+    /// Pending Opt+Ctrl drag target (snap-beside or stack-onto).
+    pub pending_mod_drag: Option<PendingModDrag>,
 }
 
 // SAFETY: AppState is only accessed from the main thread (via Mutex).
@@ -103,6 +122,7 @@ impl AppState {
             cycle_index: 0,
             original_frames: Vec::new(),
             needs_relayout: false,
+            pending_mod_drag: None,
         }
     }
 }
@@ -137,7 +157,7 @@ fn handle_action(state: &Arc<Mutex<AppState>>, action: TileAction) {
         }
     };
 
-    let mut st = state.lock().unwrap();
+    let mut st = lock_state(&state);
 
     // Handle special actions
     match action {
@@ -198,6 +218,48 @@ fn handle_action(state: &Arc<Mutex<AppState>>, action: TileAction) {
                     st.tree.swap_panes(a, b);
                     relayout(&st.tree, screen);
                 }
+            }
+            return;
+        }
+        TileAction::StackNext | TileAction::StackPrev => {
+            let forward = matches!(action, TileAction::StackNext);
+            if let Some(pane_id) = st.tree.focused_pane {
+                if let Some(new_active) = st.tree.cycle_tab(pane_id, forward) {
+                    // Raise the newly active tab's window and push others behind
+                    if let Some(Node::Pane { tabs, .. }) = st.tree.root.find(pane_id) {
+                        // Focus the active tab
+                        if let Some(active_win) = tabs.get(new_active) {
+                            tile_ax::focus_window(&active_win.ax_ref);
+                            info!(
+                                "Cycled to tab {} in pane: {} ({})",
+                                new_active, active_win.title, active_win.app_name
+                            );
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        TileAction::SnapToNearest => {
+            // Find the nearest visible window and snap beside it
+            let windows = tile_ax::list_visible_windows();
+            if let Some(nearest) = find_nearest_window(current_frame, &windows, app_info.pid) {
+                let side = if current_frame.center().0 < nearest.frame.center().0 {
+                    SnapSide::Left
+                } else {
+                    SnapSide::Right
+                };
+                let snap_frame = TileTree::snap_window_beside(
+                    nearest.frame,
+                    current_frame,
+                    side,
+                    screen,
+                );
+                tile_ax::set_window_frame_raw(raw_element, snap_frame);
+                info!(
+                    "Snapped {} beside {} on {:?}",
+                    app_info.name, nearest.app_name, side
+                );
             }
             return;
         }
@@ -305,12 +367,32 @@ fn setup_status_bar(mtm: MainThreadMarker, _state: Arc<Mutex<AppState>>) {
     std::mem::forget(item);
 }
 
+/// Find the nearest visible window to the given frame, excluding the specified PID.
+fn find_nearest_window(
+    from: Rect,
+    windows: &[tile_core::WindowInfo],
+    exclude_pid: i32,
+) -> Option<tile_core::WindowInfo> {
+    let (cx, cy) = from.center();
+    windows
+        .iter()
+        .filter(|w| w.pid != exclude_pid && !w.is_minimized)
+        .min_by(|a, b| {
+            let (ax, ay) = a.frame.center();
+            let (bx, by) = b.frame.center();
+            let da = (ax - cx).powi(2) + (ay - cy).powi(2);
+            let db = (bx - cx).powi(2) + (by - cy).powi(2);
+            da.partial_cmp(&db).unwrap()
+        })
+        .cloned()
+}
+
 /// Start observing all running regular applications.
 fn observe_running_apps(state: &Arc<Mutex<AppState>>) {
     let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
     let apps = workspace.runningApplications();
 
-    let mut st = state.lock().unwrap();
+    let mut st = lock_state(&state);
     let observer = match st.observer.as_mut() {
         Some(o) => o,
         None => return,

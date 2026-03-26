@@ -5,6 +5,9 @@
 //! does not yet wrap the Carbon Event Manager.
 
 use log::{debug, error, info, warn};
+use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
+use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -237,6 +240,47 @@ impl Drop for HotkeyManager {
         }
         let mut state = HOTKEY_STATE.lock().unwrap();
         *state = None;
+    }
+}
+
+/// Monitors scroll wheel events with Opt+Ctrl held for stack cycling.
+pub struct ScrollMonitor {
+    _monitor: Option<Retained<AnyObject>>,
+}
+
+impl ScrollMonitor {
+    /// Create a new scroll monitor that fires the callback with `TileAction::StackNext`
+    /// (scroll down) or `TileAction::StackPrev` (scroll up) when Opt+Ctrl is held.
+    pub fn new(callback: Box<dyn Fn(TileAction) + Send + 'static>) -> Self {
+        let mask = NSEventMask::ScrollWheel;
+        let handler = block2::RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
+            let event = unsafe { event.as_ref() };
+            let flags = event.modifierFlags();
+            let opt_ctrl = NSEventModifierFlags::Option
+                .union(NSEventModifierFlags::Control);
+            // Check that both Opt and Ctrl are held
+            if !flags.contains(opt_ctrl) {
+                return;
+            }
+            let dy = event.scrollingDeltaY();
+            // Use a threshold to avoid accidental triggers from tiny scroll amounts
+            if dy.abs() < 1.0 {
+                return;
+            }
+            if dy > 0.0 {
+                // Scroll up → previous tab
+                (callback)(TileAction::StackPrev);
+            } else {
+                // Scroll down → next tab
+                (callback)(TileAction::StackNext);
+            }
+        });
+        let monitor =
+            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &handler);
+        info!("Scroll monitor for stack cycling registered");
+        Self {
+            _monitor: monitor,
+        }
     }
 }
 
