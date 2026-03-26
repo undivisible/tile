@@ -284,6 +284,149 @@ impl ScrollMonitor {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_default_bindings_count() {
+        let bindings = HotkeyManager::default_bindings();
+        assert_eq!(bindings.len(), 27);
+    }
+
+    #[test]
+    fn test_no_duplicate_keycode_modifier_pairs() {
+        let bindings = HotkeyManager::default_bindings();
+        let mut seen = HashSet::new();
+        for (keycode, modifiers, action) in &bindings {
+            let key = (*keycode, *modifiers);
+            assert!(
+                seen.insert(key),
+                "Duplicate keycode+modifier pair: keycode={:#x}, modifiers={:#x}, action={:?}",
+                keycode,
+                modifiers,
+                action
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_actions_present() {
+        let bindings = HotkeyManager::default_bindings();
+        let actions: Vec<TileAction> = bindings.iter().map(|(_, _, a)| *a).collect();
+
+        // Halves
+        assert!(actions.contains(&TileAction::LeftHalf));
+        assert!(actions.contains(&TileAction::RightHalf));
+        assert!(actions.contains(&TileAction::TopHalf));
+        assert!(actions.contains(&TileAction::BottomHalf));
+
+        // Thirds
+        assert!(actions.contains(&TileAction::LeftThird));
+        assert!(actions.contains(&TileAction::CenterThird));
+        assert!(actions.contains(&TileAction::RightThird));
+
+        // Two-thirds
+        assert!(actions.contains(&TileAction::LeftTwoThirds));
+        assert!(actions.contains(&TileAction::CenterTwoThirds));
+        assert!(actions.contains(&TileAction::RightTwoThirds));
+
+        // Quarters
+        assert!(actions.contains(&TileAction::TopLeftQuarter));
+        assert!(actions.contains(&TileAction::TopRightQuarter));
+        assert!(actions.contains(&TileAction::BottomLeftQuarter));
+        assert!(actions.contains(&TileAction::BottomRightQuarter));
+
+        // Special
+        assert!(actions.contains(&TileAction::Maximize));
+        assert!(actions.contains(&TileAction::Center));
+        assert!(actions.contains(&TileAction::Restore));
+        assert!(actions.contains(&TileAction::EqualizeAll));
+        assert!(actions.contains(&TileAction::ToggleZoom));
+
+        // Move
+        assert!(actions.contains(&TileAction::MovePaneLeft));
+        assert!(actions.contains(&TileAction::MovePaneRight));
+        assert!(actions.contains(&TileAction::MovePaneUp));
+        assert!(actions.contains(&TileAction::MovePaneDown));
+
+        // Swap
+        assert!(actions.contains(&TileAction::SwapPaneLeft));
+        assert!(actions.contains(&TileAction::SwapPaneRight));
+        assert!(actions.contains(&TileAction::SwapPaneUp));
+        assert!(actions.contains(&TileAction::SwapPaneDown));
+    }
+
+    #[test]
+    fn test_halves_use_ctrl_opt() {
+        let bindings = HotkeyManager::default_bindings();
+        let half_actions = [
+            TileAction::LeftHalf,
+            TileAction::RightHalf,
+            TileAction::TopHalf,
+            TileAction::BottomHalf,
+        ];
+        for (_, modifiers, action) in &bindings {
+            if half_actions.contains(action) {
+                assert_eq!(
+                    *modifiers,
+                    CONTROL_KEY | OPTION_KEY,
+                    "Half action {:?} should use Ctrl+Opt",
+                    action
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_move_uses_ctrl_opt_shift() {
+        let bindings = HotkeyManager::default_bindings();
+        let move_actions = [
+            TileAction::MovePaneLeft,
+            TileAction::MovePaneRight,
+            TileAction::MovePaneUp,
+            TileAction::MovePaneDown,
+        ];
+        for (_, modifiers, action) in &bindings {
+            if move_actions.contains(action) {
+                assert_eq!(
+                    *modifiers,
+                    CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                    "Move action {:?} should use Ctrl+Opt+Shift",
+                    action
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_swap_uses_ctrl_opt_cmd() {
+        let bindings = HotkeyManager::default_bindings();
+        let swap_actions = [
+            TileAction::SwapPaneLeft,
+            TileAction::SwapPaneRight,
+            TileAction::SwapPaneUp,
+            TileAction::SwapPaneDown,
+        ];
+        for (_, modifiers, action) in &bindings {
+            if swap_actions.contains(action) {
+                assert_eq!(
+                    *modifiers,
+                    CONTROL_KEY | OPTION_KEY | CMD_KEY,
+                    "Swap action {:?} should use Ctrl+Opt+Cmd",
+                    action
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_tile_signature() {
+        assert_eq!(TILE_SIGNATURE, u32::from_be_bytes(*b"TILE"));
+    }
+}
+
 /// The C callback for hotkey events.
 extern "C" fn hotkey_handler(
     _handler: *mut c_void,
