@@ -141,6 +141,22 @@ fn handle_action(state: &Arc<Mutex<AppState>>, action: TileAction) {
 
     let (raw_element, _ax_ref, app_info) = window_info;
 
+    // Use an inner function so we always release raw_element regardless of
+    // which code path we take.
+    handle_action_inner(state, action, raw_element, app_info);
+
+    // raw_element is an owned CFTypeRef from CopyAttributeValue — release it.
+    tile_ax::release_frontmost_window(raw_element);
+}
+
+/// Inner implementation of handle_action; the caller releases `raw_element`.
+fn handle_action_inner(
+    state: &Arc<Mutex<AppState>>,
+    action: TileAction,
+    raw_element: *const std::ffi::c_void,
+    app_info: tile_core::AppInfo,
+) {
+
     let current_frame = match tile_ax::get_window_frame_raw(raw_element) {
         Some(f) => f,
         None => {

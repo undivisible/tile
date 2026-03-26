@@ -32,8 +32,8 @@ struct ObserverState {
 pub struct WindowObserverManager {
     /// Map of pid → observer CFTypeRef
     observers: HashMap<i32, CFTypeRef>,
-    /// Shared state for callbacks
-    state: Arc<Mutex<ObserverState>>,
+    /// Shared state for callbacks (held for ref count; accessed via state_raw)
+    _state: Arc<Mutex<ObserverState>>,
     /// Raw pointer to the Arc, created once and reused for all observer refcons.
     /// We hold one extra Arc ref count for this pointer; it is reclaimed in Drop.
     state_raw: *const Mutex<ObserverState>,
@@ -46,7 +46,7 @@ impl WindowObserverManager {
         let state_raw = Arc::into_raw(state.clone());
         Self {
             observers: HashMap::new(),
-            state,
+            _state: state,
             state_raw,
         }
     }

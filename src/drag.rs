@@ -177,11 +177,17 @@ fn handle_mod_drag_end(state: &Arc<Mutex<AppState>>, _x: f64, _y: f64) {
             ModDragTarget::SnapBeside { target_frame, side } => {
                 let screen = match tile_ax::get_usable_screen_frame(0) {
                     Some(s) => s,
-                    None => return,
+                    None => {
+                        tile_ax::release_frontmost_window(raw_element);
+                        return;
+                    }
                 };
                 let current_frame = match tile_ax::get_window_frame_raw(raw_element) {
                     Some(f) => f,
-                    None => return,
+                    None => {
+                        tile_ax::release_frontmost_window(raw_element);
+                        return;
+                    }
                 };
                 let snap_frame = TileTree::snap_window_beside(
                     target_frame,
@@ -201,6 +207,9 @@ fn handle_mod_drag_end(state: &Arc<Mutex<AppState>>, _x: f64, _y: f64) {
                 info!("Stacked {} onto target window", app_info.name);
             }
         }
+
+        // Release the owned window element from get_frontmost_window
+        tile_ax::release_frontmost_window(raw_element);
     }
 }
 
