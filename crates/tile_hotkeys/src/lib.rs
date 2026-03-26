@@ -110,6 +110,88 @@ pub struct HotkeyManager {
 unsafe impl Send for HotkeyManager {}
 
 impl HotkeyManager {
+    /// Create a new hotkey manager with custom bindings.
+    pub fn with_bindings(
+        callback: HotkeyCallback,
+        bindings: Vec<(u32, u32, TileAction)>,
+    ) -> Result<Self, String> {
+        let mut action_map = HashMap::new();
+
+        // Store action map
+        for (idx, (_, _, action)) in bindings.iter().enumerate() {
+            action_map.insert(idx as u32, *action);
+        }
+
+        // Install the event handler first
+        let mut handler_ref: *mut c_void = std::ptr::null_mut();
+        let event_type = EventTypeSpec {
+            event_class: K_EVENT_CLASS_KEYBOARD,
+            event_kind: K_EVENT_HOT_KEY_PRESSED,
+        };
+
+        // Store state globally for the C callback
+        {
+            let mut state = HOTKEY_STATE.lock().unwrap();
+            *state = Some(HotkeyState {
+                callback,
+                action_map,
+            });
+        }
+
+        let err = unsafe {
+            InstallEventHandler(
+                GetApplicationEventTarget(),
+                hotkey_handler,
+                1,
+                &event_type,
+                std::ptr::null_mut(),
+                &mut handler_ref,
+            )
+        };
+
+        if err != 0 {
+            return Err(format!("Failed to install event handler: {}", err));
+        }
+
+        // Register all hotkeys
+        let mut hotkeys = Vec::new();
+        for (idx, (keycode, modifiers, action)) in bindings.iter().enumerate() {
+            let mut hotkey_ref: *mut c_void = std::ptr::null_mut();
+            let hotkey_id = EventHotKeyID {
+                signature: TILE_SIGNATURE,
+                id: idx as u32,
+            };
+
+            let err = unsafe {
+                RegisterEventHotKey(
+                    *keycode,
+                    *modifiers,
+                    hotkey_id,
+                    GetApplicationEventTarget(),
+                    0,
+                    &mut hotkey_ref,
+                )
+            };
+
+            if err != 0 {
+                warn!(
+                    "Failed to register hotkey {:?}: error {}",
+                    action, err
+                );
+            } else {
+                debug!("Registered hotkey {:?}", action);
+                hotkeys.push(RegisteredHotkey { _ref: hotkey_ref });
+            }
+        }
+
+        info!("Registered {} hotkeys", hotkeys.len());
+
+        Ok(Self {
+            hotkeys,
+            _handler_ref: handler_ref,
+        })
+    }
+
     /// Create a new hotkey manager and register all Rectangle-compatible shortcuts.
     pub fn new(callback: HotkeyCallback) -> Result<Self, String> {
         let mut action_map = HashMap::new();

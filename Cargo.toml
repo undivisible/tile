@@ -4,6 +4,7 @@ members = [
     "crates/tile_ax",
     "crates/tile_hotkeys",
     "crates/tile_overlay",
+    "crates/tile_settings",
 ]
 resolver = "2"
 
@@ -22,11 +23,17 @@ license.workspace = true
 name = "tile"
 path = "src/main.rs"
 
+[[bin]]
+name = "tile-settings"
+path = "src/settings_main.rs"
+
 [dependencies]
 tile_core = { path = "crates/tile_core" }
 tile_ax = { path = "crates/tile_ax" }
 tile_hotkeys = { path = "crates/tile_hotkeys" }
 tile_overlay = { path = "crates/tile_overlay" }
+tile_settings = { path = "crates/tile_settings" }
+gpui = "0.2"
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1", features = ["derive"] }

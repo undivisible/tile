@@ -12,6 +12,7 @@ use tile_ax::WindowObserverManager;
 use tile_core::{Direction, Node, Rect, SnapSide, TileAction, TileTree};
 use tile_hotkeys::{HotkeyManager, ScrollMonitor};
 use tile_overlay::{OverlayConfig, OverlayManager};
+use tile_settings::TileConfig;
 
 use crate::drag::{DragMonitor, PendingModDrag};
 
@@ -50,11 +51,16 @@ impl TileApp {
         // Set up status bar
         setup_status_bar(mtm, state.clone());
 
-        // Set up hotkeys (callback runs on main thread via Carbon)
+        // Load config and set up hotkeys
+        let config = TileConfig::load();
+        let bindings = config.to_bindings();
         let state_for_hotkeys = state.clone();
-        match HotkeyManager::new(Box::new(move |action| {
-            handle_action(&state_for_hotkeys, action);
-        })) {
+        match HotkeyManager::with_bindings(
+            Box::new(move |action| {
+                handle_action(&state_for_hotkeys, action);
+            }),
+            bindings,
+        ) {
             Ok(manager) => {
                 info!("Hotkey manager initialized");
                 std::mem::forget(manager);
@@ -361,6 +367,18 @@ fn setup_status_bar(mtm: MainThreadMarker, _state: Arc<Mutex<AppState>>) {
         )
     };
     menu.addItem(&about_item);
+
+    // Settings item — launches tile-settings binary
+    let settings_title = NSString::from_str("Settings...");
+    let settings_item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &settings_title,
+            None,
+            ns_string!(","),
+        )
+    };
+    menu.addItem(&settings_item);
 
     // Separator
     menu.addItem(&NSMenuItem::separatorItem(mtm));
