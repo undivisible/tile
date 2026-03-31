@@ -51,6 +51,7 @@ pub fn get_frontmost_window() -> Option<(CFTypeRef, AXWindowRef, AppInfo)> {
 }
 
 /// Release the window element returned by `get_frontmost_window`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn release_frontmost_window(element: CFTypeRef) {
     if !element.is_null() {
         unsafe {

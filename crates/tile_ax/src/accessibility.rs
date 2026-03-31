@@ -124,6 +124,7 @@ pub fn request_accessibility_permission() -> bool {
 }
 
 /// Helper: get a string attribute from an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_get_string_attribute(element: CFTypeRef, attribute: &str) -> Option<String> {
     unsafe {
         let attr = CFString::new(attribute);
@@ -143,6 +144,7 @@ pub fn ax_get_string_attribute(element: CFTypeRef, attribute: &str) -> Option<St
 }
 
 /// Helper: get a boolean attribute from an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_get_bool_attribute(element: CFTypeRef, attribute: &str) -> Option<bool> {
     unsafe {
         let attr = CFString::new(attribute);
@@ -161,6 +163,7 @@ pub fn ax_get_bool_attribute(element: CFTypeRef, attribute: &str) -> Option<bool
 }
 
 /// Helper: get the position (CGPoint) of an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_get_position(element: CFTypeRef) -> Option<(f64, f64)> {
     unsafe {
         let attr = CFString::new(K_AX_POSITION_ATTRIBUTE);
@@ -189,6 +192,7 @@ pub fn ax_get_position(element: CFTypeRef) -> Option<(f64, f64)> {
 }
 
 /// Helper: get the size (CGSize) of an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_get_size(element: CFTypeRef) -> Option<(f64, f64)> {
     unsafe {
         let attr = CFString::new(K_AX_SIZE_ATTRIBUTE);
@@ -217,6 +221,7 @@ pub fn ax_get_size(element: CFTypeRef) -> Option<(f64, f64)> {
 }
 
 /// Helper: set the position of an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_set_position(element: CFTypeRef, x: f64, y: f64) -> bool {
     unsafe {
         let point = core_graphics::geometry::CGPoint::new(x, y);
@@ -236,6 +241,7 @@ pub fn ax_set_position(element: CFTypeRef, x: f64, y: f64) -> bool {
 }
 
 /// Helper: set the size of an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_set_size(element: CFTypeRef, w: f64, h: f64) -> bool {
     unsafe {
         let size = core_graphics::geometry::CGSize::new(w, h);
@@ -255,6 +261,7 @@ pub fn ax_set_size(element: CFTypeRef, w: f64, h: f64) -> bool {
 }
 
 /// Perform an action on an AX element.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn ax_perform_action(element: CFTypeRef, action: &str) -> bool {
     unsafe {
         let action_str = CFString::new(action);

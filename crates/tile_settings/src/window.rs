@@ -2,7 +2,7 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, point, px, rgb, size, uniform_list, App, Bounds, Entity, SharedString,
+    div, point, px, rgb, size, uniform_list, App, Bounds, SharedString,
     UniformListScrollHandle, Window, WindowBounds, WindowKind, WindowOptions,
     TitlebarOptions,
 };
@@ -15,7 +15,6 @@ use crate::config::{
 /// A row in the keybinding table.
 #[derive(Debug, Clone)]
 struct BindingRow {
-    action_name: String,
     display_name: String,
     group: &'static str,
     shortcut_text: String,
@@ -61,7 +60,6 @@ fn build_rows(config: &TileConfig) -> Vec<BindingRow> {
         for (name, binding) in &config.bindings {
             if action_group(name) == *group {
                 rows.push(BindingRow {
-                    action_name: name.clone(),
                     display_name: action_display_name(name),
                     group,
                     shortcut_text: format_binding(binding),
@@ -245,7 +243,7 @@ impl Render for SettingsWindow {
 fn render_row(ix: usize, row: &BindingRow, is_selected: bool) -> impl IntoElement {
     let bg = if is_selected {
         rgb(0x45475a)
-    } else if ix % 2 == 0 {
+    } else if ix.is_multiple_of(2) {
         rgb(0x1e1e2e)
     } else {
         rgb(0x181825)
@@ -305,7 +303,6 @@ pub fn open_settings_window(cx: &mut App) {
                 title: Some("Tile Settings".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(12.0), px(12.0))),
-                ..Default::default()
             }),
             kind: WindowKind::Normal,
             focus: true,
