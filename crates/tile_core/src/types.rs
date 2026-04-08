@@ -212,6 +212,17 @@ pub enum TileAction {
 
     // Snap beside nearest window (floating, not BSP)
     SnapToNearest,
+
+    // Display movement
+    MoveToNextDisplay,
+    MoveToPreviousDisplay,
+
+    // History
+    UndoLastAction,
+
+    // Modes
+    ToggleMultiplexerMode,
+    SetMultiplexerRegionFromFrontmost,
 }
 
 impl TileAction {

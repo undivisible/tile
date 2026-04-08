@@ -10,6 +10,7 @@
 mod mod_target;
 
 use crate::app::{lock_state, AppState};
+use crate::app::state::TilingMode;
 use log::info;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -42,7 +43,11 @@ impl DragMonitor {
 
                 let opt_ctrl =
                     NSEventModifierFlags::Option.union(NSEventModifierFlags::Control);
-                if flags.contains(opt_ctrl) {
+                let opt_cmd =
+                    NSEventModifierFlags::Option.union(NSEventModifierFlags::Command);
+                if flags.contains(opt_cmd) {
+                    handle_shared_resize_drag(&state_drag, location.x, location.y);
+                } else if flags.contains(opt_ctrl) {
                     handle_mod_drag_move(&state_drag, location.x, location.y, mtm);
                 } else {
                     handle_drag_move(&state_drag, location.x, location.y, mtm);
@@ -58,7 +63,11 @@ impl DragMonitor {
                 let flags = event.modifierFlags();
                 let opt_ctrl =
                     NSEventModifierFlags::Option.union(NSEventModifierFlags::Control);
-                if flags.contains(opt_ctrl) {
+                let opt_cmd =
+                    NSEventModifierFlags::Option.union(NSEventModifierFlags::Command);
+                if flags.contains(opt_cmd) {
+                    handle_shared_resize_end(&state_up);
+                } else if flags.contains(opt_ctrl) {
                     handle_mod_drag_end(&state_up, event.locationInWindow().x, event.locationInWindow().y);
                 } else {
                     handle_drag_end(&state_up);
@@ -198,4 +207,43 @@ fn handle_mod_drag_end(state: &Arc<Mutex<AppState>>, _x: f64, _y: f64) {
         // Release the owned window element from get_frontmost_window
         tile_ax::release_frontmost_window(raw_element);
     }
+}
+
+fn handle_shared_resize_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64) {
+    let screen = match tile_ax::get_usable_screen_frame(0) {
+        Some(s) => s,
+        None => return,
+    };
+    let mut st = lock_state(state);
+    if st.tiling_mode != TilingMode::Multiplexer {
+        return;
+    }
+    let split_id = match st.tree.root.first_split_id() {
+        Some(id) => id,
+        None => return,
+    };
+    let prev = st.multiplexer.shared_resize.last_cursor;
+    st.multiplexer.shared_resize.split_id = Some(split_id);
+    st.multiplexer.shared_resize.last_cursor = Some((x, y));
+    if let Some((px, py)) = prev {
+        let dx = (x - px) as f32;
+        let dy = (y - py) as f32;
+        let delta = (dx + dy) * 0.0015;
+        if st.tree.root.resize_split(split_id, delta) {
+            let layout = st.tree.compute_layout(screen);
+            for (pane_id, rect) in layout {
+                if let Some(tile_core::Node::Pane { tabs, active, .. }) = st.tree.root.find(pane_id) {
+                    if let Some(window) = tabs.get(*active) {
+                        tile_ax::set_window_frame(&window.ax_ref, rect);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn handle_shared_resize_end(state: &Arc<Mutex<AppState>>) {
+    let mut st = lock_state(state);
+    st.multiplexer.shared_resize.last_cursor = None;
+    st.multiplexer.shared_resize.split_id = None;
 }

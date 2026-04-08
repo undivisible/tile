@@ -30,6 +30,9 @@ pub struct AppState {
     pub needs_relayout: bool,
     /// Pending Opt+Ctrl drag target (snap-beside or stack-onto).
     pub pending_mod_drag: Option<PendingModDrag>,
+    pub tiling_mode: TilingMode,
+    pub multiplexer: MultiplexerState,
+    pub action_history: Vec<ActionSnapshot>,
 }
 
 // SAFETY: AppState is only accessed from the main thread (via Mutex).
@@ -48,6 +51,38 @@ impl AppState {
             original_frames: Vec::new(),
             needs_relayout: false,
             pending_mod_drag: None,
+            tiling_mode: TilingMode::Snap,
+            multiplexer: MultiplexerState::default(),
+            action_history: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TilingMode {
+    Snap,
+    Multiplexer,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MultiplexerRegion {
+    pub rect: Rect,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SharedResizeState {
+    pub split_id: Option<tile_core::NodeId>,
+    pub last_cursor: Option<(f64, f64)>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MultiplexerState {
+    pub active_region: Option<MultiplexerRegion>,
+    pub shared_resize: SharedResizeState,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ActionSnapshot {
+    pub pid: i32,
+    pub frame: Rect,
 }

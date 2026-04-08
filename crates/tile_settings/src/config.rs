@@ -150,6 +150,14 @@ pub fn default_binding_list() -> Vec<(&'static str, u32, u32)> {
         ("SwapPaneRight", K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
         ("SwapPaneUp", K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
         ("SwapPaneDown", K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
+        // Display movement
+        ("MoveToPreviousDisplay", K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY),
+        ("MoveToNextDisplay", K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY),
+        // History
+        ("UndoLastAction", K_VK_Z, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
+        // Modes
+        ("ToggleMultiplexerMode", K_VK_M, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY),
+        ("SetMultiplexerRegionFromFrontmost", K_VK_M, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
     ]
 }
 
@@ -186,6 +194,11 @@ pub fn action_name(action: TileAction) -> &'static str {
         TileAction::StackNext => "StackNext",
         TileAction::StackPrev => "StackPrev",
         TileAction::SnapToNearest => "SnapToNearest",
+        TileAction::MoveToNextDisplay => "MoveToNextDisplay",
+        TileAction::MoveToPreviousDisplay => "MoveToPreviousDisplay",
+        TileAction::UndoLastAction => "UndoLastAction",
+        TileAction::ToggleMultiplexerMode => "ToggleMultiplexerMode",
+        TileAction::SetMultiplexerRegionFromFrontmost => "SetMultiplexerRegionFromFrontmost",
     }
 }
 
@@ -222,6 +235,11 @@ pub fn action_from_name(name: &str) -> Option<TileAction> {
         "StackNext" => Some(TileAction::StackNext),
         "StackPrev" => Some(TileAction::StackPrev),
         "SnapToNearest" => Some(TileAction::SnapToNearest),
+        "MoveToNextDisplay" => Some(TileAction::MoveToNextDisplay),
+        "MoveToPreviousDisplay" => Some(TileAction::MoveToPreviousDisplay),
+        "UndoLastAction" => Some(TileAction::UndoLastAction),
+        "ToggleMultiplexerMode" => Some(TileAction::ToggleMultiplexerMode),
+        "SetMultiplexerRegionFromFrontmost" => Some(TileAction::SetMultiplexerRegionFromFrontmost),
         _ => None,
     }
 }

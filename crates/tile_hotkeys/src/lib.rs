@@ -309,6 +309,14 @@ impl HotkeyManager {
             (K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneRight),
             (K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneUp),
             (K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneDown),
+            // Move between displays: Ctrl+Opt+Cmd+Shift+Left/Right
+            (K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY, TileAction::MoveToPreviousDisplay),
+            (K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY, TileAction::MoveToNextDisplay),
+            // Undo: Ctrl+Opt+Shift+Z
+            (K_VK_Z, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::UndoLastAction),
+            // Multiplexer controls
+            (K_VK_M, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY, TileAction::ToggleMultiplexerMode),
+            (K_VK_M, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::SetMultiplexerRegionFromFrontmost),
         ]
     }
 }

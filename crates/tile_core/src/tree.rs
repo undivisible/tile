@@ -361,6 +361,16 @@ impl Node {
     pub fn deserialize(json: &str) -> Option<Self> {
         serde_json::from_str(json).ok()
     }
+
+    pub fn first_split_id(&self) -> Option<NodeId> {
+        match self {
+            Node::Split {
+                id,
+                ..
+            } => Some(*id),
+            Node::Pane { .. } => None,
+        }
+    }
 }
 
 /// The tiling tree manager. Holds the root node and manages operations.

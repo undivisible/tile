@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use log::info;
-use tile_core::{Direction, Node, Rect, SnapSide, TileAction, TileTree};
+use tile_core::{AXWindowRef, Direction, ManagedWindow, Node, Rect, SnapSide, TileAction, TileTree};
 
-use super::state::{lock_state, AppState};
+use super::state::{lock_state, ActionSnapshot, AppState, MultiplexerRegion, TilingMode};
 use super::window_search::find_nearest_window;
 
 /// Handle a tile action from hotkey press.
@@ -64,6 +64,35 @@ fn handle_action_inner(
                 tile_ax::set_window_frame_raw(raw_element, frame);
                 info!("Restored window for {}", app_info.name);
             }
+            return;
+        }
+        TileAction::UndoLastAction => {
+            if let Some(snapshot) = st.action_history.pop() {
+                if snapshot.pid == app_info.pid {
+                    tile_ax::set_window_frame_raw(raw_element, snapshot.frame);
+                    info!("Undid last action for {}", app_info.name);
+                }
+            }
+            return;
+        }
+        TileAction::ToggleMultiplexerMode => {
+            st.tiling_mode = if st.tiling_mode == TilingMode::Snap {
+                TilingMode::Multiplexer
+            } else {
+                TilingMode::Snap
+            };
+            info!("Tiling mode set to {:?}", st.tiling_mode);
+            return;
+        }
+        TileAction::SetMultiplexerRegionFromFrontmost => {
+            st.multiplexer.active_region = Some(MultiplexerRegion {
+                rect: current_frame,
+            });
+            st.tiling_mode = TilingMode::Multiplexer;
+            info!(
+                "Multiplexer region set from frontmost window: ({:.0}, {:.0}, {:.0}, {:.0})",
+                current_frame.x, current_frame.y, current_frame.width, current_frame.height
+            );
             return;
         }
         TileAction::EqualizeAll => {
@@ -156,6 +185,46 @@ fn handle_action_inner(
             }
             return;
         }
+        TileAction::MoveToNextDisplay | TileAction::MoveToPreviousDisplay => {
+            let displays = tile_ax::all_usable_frames();
+            if displays.len() < 2 {
+                return;
+            }
+            let (cx, cy) = current_frame.center();
+            let mut current_idx = 0usize;
+            for (i, d) in displays.iter().enumerate() {
+                if d.contains_point(cx, cy) {
+                    current_idx = i;
+                    break;
+                }
+            }
+            let target_idx = if matches!(action, TileAction::MoveToNextDisplay) {
+                (current_idx + 1) % displays.len()
+            } else if current_idx == 0 {
+                displays.len() - 1
+            } else {
+                current_idx - 1
+            };
+            let src = displays[current_idx];
+            let dst = displays[target_idx];
+            let rx = if src.width > 0.0 { (current_frame.x - src.x) / src.width } else { 0.0 };
+            let ry = if src.height > 0.0 { (current_frame.y - src.y) / src.height } else { 0.0 };
+            let rw = if src.width > 0.0 { current_frame.width / src.width } else { 0.5 };
+            let rh = if src.height > 0.0 { current_frame.height / src.height } else { 0.5 };
+            let mapped = Rect::new(
+                dst.x + dst.width * rx,
+                dst.y + dst.height * ry,
+                dst.width * rw,
+                dst.height * rh,
+            );
+            st.action_history.push(ActionSnapshot {
+                pid: app_info.pid,
+                frame: current_frame,
+            });
+            tile_ax::set_window_frame_raw(raw_element, mapped);
+            info!("Moved {} to display {}", app_info.name, target_idx);
+            return;
+        }
         _ => {}
     }
 
@@ -188,8 +257,30 @@ fn handle_action_inner(
         st.original_frames.push((app_info.pid, current_frame));
     }
 
-    // Compute and apply target frame
-    if let Some(target_frame) = target_action.compute_frame(screen) {
+    // Compute and apply target frame.
+    // In multiplexer mode, action frames are computed inside the active region.
+    let base_rect = match (st.tiling_mode, st.multiplexer.active_region) {
+        (TilingMode::Multiplexer, Some(region)) => region.rect,
+        _ => screen,
+    };
+    if st.tiling_mode == TilingMode::Multiplexer {
+        if st.tree.root.find_pane_by_pid(app_info.pid).is_none() {
+            let window = ManagedWindow::new(
+                AXWindowRef::new(app_info.pid, 0, raw_element as usize),
+                app_info.pid,
+                app_info.name.clone(),
+                app_info.name.clone(),
+                current_frame,
+            );
+            st.tree.add_window(window);
+            relayout(&st.tree, base_rect);
+        }
+    }
+    if let Some(target_frame) = target_action.compute_frame(base_rect) {
+        st.action_history.push(ActionSnapshot {
+            pid: app_info.pid,
+            frame: current_frame,
+        });
         tile_ax::set_window_frame_raw(raw_element, target_frame);
         info!(
             "Tiled {} ({}) to {:?} -> ({:.0}, {:.0}, {:.0}, {:.0})",
@@ -202,6 +293,16 @@ fn handle_action_inner(
             target_frame.height
         );
     }
+}
+
+pub(crate) fn set_tiling_mode(state: &Arc<Mutex<AppState>>, mode: TilingMode) {
+    let mut st = lock_state(state);
+    st.tiling_mode = mode;
+}
+
+pub(crate) fn set_multiplexer_region(state: &Arc<Mutex<AppState>>, rect: Rect) {
+    let mut st = lock_state(state);
+    st.multiplexer.active_region = Some(MultiplexerRegion { rect });
 }
 
 /// Apply the tiling tree layout to all managed windows.
