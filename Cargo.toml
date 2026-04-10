@@ -53,3 +53,6 @@ objc2-app-kit = { version = "0.3", features = [
     "NSEvent",
     "NSGraphics",
 ] }
+
+[patch.crates-io]
+gpui = { path = "../crepuscularity/vendor/gpui" }

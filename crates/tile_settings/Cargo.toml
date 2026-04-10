@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 tile_core = { path = "../tile_core" }
 gpui = "0.2"
+crepuscularity-gpui = { path = "../../../crepuscularity/crates/crepuscularity-gpui" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"

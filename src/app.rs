@@ -8,7 +8,8 @@ mod window_search;
 
 use crate::app::actions::handle_action;
 use crate::app::observe::observe_running_apps;
-pub(crate) use state::{lock_state, AppState};
+pub(crate) use state::{lock_state, AppState, PendingSplitResize};
+pub(crate) use state::TilingMode;
 use log::{debug, error, info};
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use objc2_foundation::MainThreadMarker;
@@ -42,8 +43,17 @@ impl TileApp {
         // Set up status bar
         menu::setup_status_bar(mtm);
 
-        // Load config and set up hotkeys
+        // Load config and apply tiling mode
         let config = tile_settings::TileConfig::load();
+        {
+            let mut st = crate::app::state::lock_state(&state);
+            st.tiling_mode = match config.tiling_mode {
+                tile_settings::TilingModeConfig::Bsp => TilingMode::Bsp,
+                tile_settings::TilingModeConfig::Snap => TilingMode::Snap,
+            };
+            st.tree.gaps.outer = config.gap_outer;
+            st.tree.gaps.inner = config.gap_inner;
+        }
         let bindings = config.to_bindings();
         let state_for_hotkeys = state.clone();
         match HotkeyManager::with_bindings(

@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use log::warn;
 use tile_ax::WindowObserverManager;
-use tile_core::{Rect, TileAction, TileTree};
+use tile_core::{NodeId, Rect, TileAction, TileTree};
 use tile_overlay::{OverlayConfig, OverlayManager};
 
 use crate::drag::PendingModDrag;
@@ -33,6 +33,8 @@ pub struct AppState {
     pub tiling_mode: TilingMode,
     pub multiplexer: MultiplexerState,
     pub action_history: Vec<ActionSnapshot>,
+    /// Active split-border drag (grab the divider between two BSP panes).
+    pub pending_split_resize: Option<PendingSplitResize>,
 }
 
 // SAFETY: AppState is only accessed from the main thread (via Mutex).
@@ -54,14 +56,25 @@ impl AppState {
             tiling_mode: TilingMode::Snap,
             multiplexer: MultiplexerState::default(),
             action_history: Vec::new(),
+            pending_split_resize: None,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TilingMode {
+    /// Hotkey-only snap mode: windows are not auto-managed.
     Snap,
-    Multiplexer,
+    /// BSP multiplexer: all windows are auto-tiled into a persistent BSP grid.
+    Bsp,
+}
+
+/// Tracks an in-progress drag of a BSP split divider.
+#[derive(Debug, Clone, Copy)]
+pub struct PendingSplitResize {
+    pub split_id: NodeId,
+    pub is_horizontal: bool,
+    pub last_cursor: (f64, f64),
 }
 
 #[derive(Debug, Clone, Copy)]

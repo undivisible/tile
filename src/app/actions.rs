@@ -77,7 +77,7 @@ fn handle_action_inner(
         }
         TileAction::ToggleMultiplexerMode => {
             st.tiling_mode = if st.tiling_mode == TilingMode::Snap {
-                TilingMode::Multiplexer
+                TilingMode::Bsp
             } else {
                 TilingMode::Snap
             };
@@ -88,7 +88,7 @@ fn handle_action_inner(
             st.multiplexer.active_region = Some(MultiplexerRegion {
                 rect: current_frame,
             });
-            st.tiling_mode = TilingMode::Multiplexer;
+            st.tiling_mode = TilingMode::Bsp;
             info!(
                 "Multiplexer region set from frontmost window: ({:.0}, {:.0}, {:.0}, {:.0})",
                 current_frame.x, current_frame.y, current_frame.width, current_frame.height
@@ -257,13 +257,9 @@ fn handle_action_inner(
         st.original_frames.push((app_info.pid, current_frame));
     }
 
-    // Compute and apply target frame.
-    // In multiplexer mode, action frames are computed inside the active region.
-    let base_rect = match (st.tiling_mode, st.multiplexer.active_region) {
-        (TilingMode::Multiplexer, Some(region)) => region.rect,
-        _ => screen,
-    };
-    if st.tiling_mode == TilingMode::Multiplexer {
+    // In BSP mode: add window to the tree if not already managed, then
+    // relayout the whole grid (the hotkey action is ignored — the tree drives sizing).
+    if st.tiling_mode == TilingMode::Bsp {
         if st.tree.root.find_pane_by_pid(app_info.pid).is_none() {
             let window = ManagedWindow::new(
                 AXWindowRef::new(app_info.pid, 0, raw_element as usize),
@@ -273,26 +269,33 @@ fn handle_action_inner(
                 current_frame,
             );
             st.tree.add_window(window);
-            relayout(&st.tree, base_rect);
         }
+        let region = st.multiplexer.active_region.map(|r| r.rect).unwrap_or(screen);
+        relayout(&st.tree, region);
+        info!("BSP relayout triggered by hotkey for {}", app_info.name);
+        return;
     }
-    if let Some(target_frame) = target_action.compute_frame(base_rect) {
-        st.action_history.push(ActionSnapshot {
-            pid: app_info.pid,
-            frame: current_frame,
-        });
-        tile_ax::set_window_frame_raw(raw_element, target_frame);
-        info!(
-            "Tiled {} ({}) to {:?} -> ({:.0}, {:.0}, {:.0}, {:.0})",
-            app_info.name,
-            app_info.pid,
-            target_action,
-            target_frame.x,
-            target_frame.y,
-            target_frame.width,
-            target_frame.height
-        );
-    }
+
+    // Snap mode: compute frame from the requested action and apply it.
+    let target_frame = match target_action.compute_frame(screen) {
+        Some(f) => f,
+        None => return,
+    };
+    st.action_history.push(ActionSnapshot {
+        pid: app_info.pid,
+        frame: current_frame,
+    });
+    tile_ax::set_window_frame_raw(raw_element, target_frame);
+    info!(
+        "Tiled {} ({}) to {:?} -> ({:.0}, {:.0}, {:.0}, {:.0})",
+        app_info.name,
+        app_info.pid,
+        target_action,
+        target_frame.x,
+        target_frame.y,
+        target_frame.width,
+        target_frame.height
+    );
 }
 
 pub(crate) fn set_tiling_mode(state: &Arc<Mutex<AppState>>, mode: TilingMode) {

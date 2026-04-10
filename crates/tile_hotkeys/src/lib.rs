@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn test_default_bindings_count() {
         let bindings = HotkeyManager::default_bindings();
-        assert_eq!(bindings.len(), 27);
+        assert_eq!(bindings.len(), 32);
     }
 
     #[test]

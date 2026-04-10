@@ -373,6 +373,20 @@ impl Node {
     }
 }
 
+/// A boundary line between two BSP panes, used for hit-testing split-resize drags.
+#[derive(Debug, Clone, Copy)]
+pub struct SplitLine {
+    pub split_id: NodeId,
+    /// Horizontal split = side-by-side panes = vertical divider line (drag left/right).
+    pub is_horizontal: bool,
+    /// Position along the split axis: x for vertical divider, y for horizontal divider.
+    pub position: f64,
+    /// Start of the span perpendicular to the axis (y-start for vertical, x-start for horizontal).
+    pub span_start: f64,
+    /// End of the span.
+    pub span_end: f64,
+}
+
 /// The tiling tree manager. Holds the root node and manages operations.
 #[derive(Debug, Clone)]
 pub struct TileTree {
@@ -593,6 +607,54 @@ impl TileTree {
             }
         };
         Rect::new(x, target_frame.y, snap_width, target_frame.height)
+    }
+
+    /// Return all split divider lines in the current layout, for drag hit-testing.
+    pub fn split_lines(&self, screen: Rect) -> Vec<SplitLine> {
+        if let Some(_) = self.root.has_zoomed_pane() {
+            return Vec::new();
+        }
+        let outer = screen.inset(self.gaps.outer);
+        let mut lines = Vec::new();
+        Self::collect_split_lines(&self.root, outer, self.gaps.inner, &mut lines);
+        lines
+    }
+
+    fn collect_split_lines(node: &Node, rect: Rect, gap: f64, out: &mut Vec<SplitLine>) {
+        if let Node::Split { orientation, ratio, first, second, id } = node {
+            let r = *ratio as f64;
+            let half_gap = gap / 2.0;
+            match orientation {
+                Orientation::Horizontal => {
+                    let divider_x = rect.x + rect.width * r;
+                    out.push(SplitLine {
+                        split_id: *id,
+                        is_horizontal: true,
+                        position: divider_x,
+                        span_start: rect.y,
+                        span_end: rect.y + rect.height,
+                    });
+                    let first_rect = Rect::new(rect.x, rect.y, rect.width * r - half_gap, rect.height);
+                    let second_rect = Rect::new(divider_x + half_gap, rect.y, rect.width * (1.0 - r) - half_gap, rect.height);
+                    Self::collect_split_lines(first, first_rect, gap, out);
+                    Self::collect_split_lines(second, second_rect, gap, out);
+                }
+                Orientation::Vertical => {
+                    let divider_y = rect.y + rect.height * r;
+                    out.push(SplitLine {
+                        split_id: *id,
+                        is_horizontal: false,
+                        position: divider_y,
+                        span_start: rect.x,
+                        span_end: rect.x + rect.width,
+                    });
+                    let first_rect = Rect::new(rect.x, rect.y, rect.width, rect.height * r - half_gap);
+                    let second_rect = Rect::new(rect.x, divider_y + half_gap, rect.width, rect.height * (1.0 - r) - half_gap);
+                    Self::collect_split_lines(first, first_rect, gap, out);
+                    Self::collect_split_lines(second, second_rect, gap, out);
+                }
+            }
+        }
     }
 
     /// Swap two panes' contents.

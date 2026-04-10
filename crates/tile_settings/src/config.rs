@@ -13,6 +13,18 @@ pub struct KeyBinding {
     pub modifiers: u32,
 }
 
+/// Which tiling mode is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TilingModeConfig {
+    /// Hotkey-only snap: windows are not auto-managed.
+    #[default]
+    Snap,
+    /// BSP multiplexer: windows are auto-tiled in a persistent BSP grid,
+    /// borders are draggable, multiple sizes are supported.
+    Bsp,
+}
+
 /// Full configuration file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileConfig {
@@ -24,6 +36,9 @@ pub struct TileConfig {
     /// Gap between windows (inner).
     #[serde(default = "default_gap")]
     pub gap_inner: f64,
+    /// Active tiling mode.
+    #[serde(default)]
+    pub tiling_mode: TilingModeConfig,
 }
 
 fn default_gap() -> f64 {
@@ -108,6 +123,7 @@ impl Default for TileConfig {
             bindings,
             gap_outer: 8.0,
             gap_inner: 8.0,
+            tiling_mode: TilingModeConfig::default(),
         }
     }
 }
@@ -376,7 +392,7 @@ mod tests {
     #[test]
     fn test_default_config_has_all_bindings() {
         let config = TileConfig::default();
-        assert_eq!(config.bindings.len(), 27);
+        assert_eq!(config.bindings.len(), 32);
     }
 
     #[test]
@@ -391,7 +407,7 @@ mod tests {
     fn test_to_bindings() {
         let config = TileConfig::default();
         let bindings = config.to_bindings();
-        assert_eq!(bindings.len(), 27);
+        assert_eq!(bindings.len(), 32);
     }
 
     #[test]
