@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use log::warn;
 use tile_ax::WindowObserverManager;
-use tile_core::{NodeId, Rect, TileAction, TileTree};
+use tile_core::{layout::SnapZone, NodeId, Rect, TileAction, TileTree};
 use tile_overlay::{OverlayConfig, OverlayManager};
 
 use crate::drag::PendingModDrag;
@@ -35,6 +35,8 @@ pub struct AppState {
     pub action_history: Vec<ActionSnapshot>,
     /// Active split-border drag (grab the divider between two BSP panes).
     pub pending_split_resize: Option<PendingSplitResize>,
+    /// Pending snap zone from the last Opt+Ctrl drag hover (screen edge or pane zone).
+    pub pending_snap_zone: Option<SnapZone>,
 }
 
 // SAFETY: AppState is only accessed from the main thread (via Mutex).
@@ -57,6 +59,7 @@ impl AppState {
             multiplexer: MultiplexerState::default(),
             action_history: Vec::new(),
             pending_split_resize: None,
+            pending_snap_zone: None,
         }
     }
 }

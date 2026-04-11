@@ -167,28 +167,32 @@ impl Node {
     }
 
     /// Split a pane into two. The existing pane content goes to `first`, and a new
-    /// empty pane becomes `second`. Returns the new pane's NodeId.
+    /// empty pane becomes `second`.
+    ///
+    /// Returns `(first_id, second_id)` — the IDs of the two resulting panes.
+    /// `first` retains the original content; `second` is empty.
     pub fn split_pane(
         &mut self,
         pane_id: NodeId,
         orientation: Orientation,
         ratio: f32,
-    ) -> Option<NodeId> {
+    ) -> Option<(NodeId, NodeId)> {
         if self.id() == pane_id {
             if let Node::Pane { tabs, zoomed, .. } = self {
                 let existing_tabs = std::mem::take(tabs);
                 let existing_zoomed = *zoomed;
-                let new_pane_id = NodeId::next();
+                let first_id = NodeId::next();
+                let second_id = NodeId::next();
                 let first = Node::Pane {
                     tabs: existing_tabs,
                     active: 0,
-                    id: NodeId::next(),
+                    id: first_id,
                     zoomed: existing_zoomed,
                 };
                 let second = Node::Pane {
                     tabs: Vec::new(),
                     active: 0,
-                    id: new_pane_id,
+                    id: second_id,
                     zoomed: false,
                 };
                 *self = Node::Split {
@@ -198,7 +202,7 @@ impl Node {
                     second: Box::new(second),
                     id: NodeId::next(),
                 };
-                return Some(new_pane_id);
+                return Some((first_id, second_id));
             }
             return None;
         }
@@ -417,12 +421,12 @@ impl TileTree {
                     return pane_id;
                 } else {
                     // Split the focused pane
-                    if let Some(new_id) =
+                    if let Some((_first, second)) =
                         self.root.split_pane(pane_id, Orientation::Horizontal, 0.5)
                     {
-                        self.root.stack_window(new_id, window);
-                        self.focused_pane = Some(new_id);
-                        return new_id;
+                        self.root.stack_window(second, window);
+                        self.focused_pane = Some(second);
+                        return second;
                     }
                 }
             }
@@ -442,13 +446,13 @@ impl TileTree {
 
         // No empty pane found, split the first pane
         if let Some(&first_pane) = pane_ids.first() {
-            if let Some(new_id) = self
+            if let Some((_first, second)) = self
                 .root
                 .split_pane(first_pane, Orientation::Horizontal, 0.5)
             {
-                self.root.stack_window(new_id, window);
-                self.focused_pane = Some(new_id);
-                return new_id;
+                self.root.stack_window(second, window);
+                self.focused_pane = Some(second);
+                return second;
             }
         }
 
@@ -874,8 +878,8 @@ mod tests {
     fn test_split_pane_vertical() {
         let mut node = Node::new_pane_with(test_window("win1"));
         let pane_id = node.id();
-        let new_id = node.split_pane(pane_id, Orientation::Vertical, 0.5);
-        assert!(new_id.is_some());
+        let split = node.split_pane(pane_id, Orientation::Vertical, 0.5);
+        assert!(split.is_some());
         assert_eq!(node.pane_count(), 2);
         if let Node::Split { orientation, .. } = &node {
             assert_eq!(*orientation, Orientation::Vertical);
@@ -896,9 +900,9 @@ mod tests {
     fn test_split_nested() {
         let mut node = Node::new_pane_with(test_window("win1"));
         let pane_id = node.id();
-        let new_id = node.split_pane(pane_id, Orientation::Horizontal, 0.5).unwrap();
-        let newer_id = node.split_pane(new_id, Orientation::Vertical, 0.5);
-        assert!(newer_id.is_some());
+        let (_first, second) = node.split_pane(pane_id, Orientation::Horizontal, 0.5).unwrap();
+        let nested = node.split_pane(second, Orientation::Vertical, 0.5);
+        assert!(nested.is_some());
         assert_eq!(node.pane_count(), 3);
     }
 
@@ -968,8 +972,8 @@ mod tests {
     fn test_stack_window_in_nested_split() {
         let mut node = Node::new_pane_with(test_window("win1"));
         let pane_id = node.id();
-        let new_id = node.split_pane(pane_id, Orientation::Horizontal, 0.5).unwrap();
-        let success = node.stack_window(new_id, test_window("stacked"));
+        let (_first, second) = node.split_pane(pane_id, Orientation::Horizontal, 0.5).unwrap();
+        let success = node.stack_window(second, test_window("stacked"));
         assert!(success);
         assert_eq!(node.window_count(), 2);
     }
@@ -1004,9 +1008,9 @@ mod tests {
         tree.add_window(w1);
 
         let focused = tree.focused_pane.unwrap();
-        if let Some(new_id) = tree.root.split_pane(focused, Orientation::Vertical, 0.5) {
-            tree.root.stack_window(new_id, test_window("bottom"));
-            tree.focused_pane = Some(new_id);
+        if let Some((_first, second)) = tree.root.split_pane(focused, Orientation::Vertical, 0.5) {
+            tree.root.stack_window(second, test_window("bottom"));
+            tree.focused_pane = Some(second);
         }
 
         let bottom_pane = tree.focused_pane.unwrap();
@@ -1043,13 +1047,13 @@ mod tests {
 
         let pane_ids = tree.root.pane_ids();
         let tl_pane = pane_ids[0];
-        if let Some(bl_id) = tree.root.split_pane(tl_pane, Orientation::Vertical, 0.5) {
+        if let Some((_first, bl_id)) = tree.root.split_pane(tl_pane, Orientation::Vertical, 0.5) {
             tree.root.stack_window(bl_id, test_window("bl"));
         }
 
         let pane_ids = tree.root.pane_ids();
         let tr_pane = pane_ids[1];
-        if let Some(br_id) = tree.root.split_pane(tr_pane, Orientation::Vertical, 0.5) {
+        if let Some((_first, br_id)) = tree.root.split_pane(tr_pane, Orientation::Vertical, 0.5) {
             tree.root.stack_window(br_id, test_window("br"));
         }
 
@@ -1198,7 +1202,7 @@ mod tests {
         let w1 = test_window("top");
         tree.add_window(w1);
         let focused = tree.focused_pane.unwrap();
-        if let Some(new_id) = tree.root.split_pane(focused, Orientation::Vertical, 0.5) {
+        if let Some((_first, new_id)) = tree.root.split_pane(focused, Orientation::Vertical, 0.5) {
             tree.root.stack_window(new_id, test_window("bottom"));
         }
 
@@ -1428,7 +1432,7 @@ mod tests {
         tree.add_window(test_window("win2"));
 
         let focused = tree.focused_pane.unwrap();
-        if let Some(new_id) = tree.root.split_pane(focused, Orientation::Vertical, 0.5) {
+        if let Some((_first, new_id)) = tree.root.split_pane(focused, Orientation::Vertical, 0.5) {
             tree.root.stack_window(new_id, test_window("win3"));
         }
 
@@ -1651,7 +1655,7 @@ mod tests {
     fn test_cleanup_empty_first_child() {
         let mut node = Node::new_pane();
         let pane_id = node.id();
-        let new_id = node.split_pane(pane_id, Orientation::Horizontal, 0.5).unwrap();
+        let (_first, new_id) = node.split_pane(pane_id, Orientation::Horizontal, 0.5).unwrap();
         node.stack_window(new_id, test_window("in_second"));
 
         assert_eq!(node.pane_count(), 2);
