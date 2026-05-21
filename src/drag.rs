@@ -4,7 +4,7 @@
 //!   If the cursor starts within 8 px of a BSP split divider, enters split-resize
 //!   mode and moves both panes simultaneously. Otherwise passes through silently.
 //!
-//! **Opt+Ctrl drag** — VSCode-style drop zones
+//! **Ctrl+Cmd drag** — VSCode-style drop zones
 //!   Shows a blue overlay while dragging:
 //!   - Over an existing window: L/R/T/B quadrant drop zones just like VSCode editor groups.
 //!   - Near a screen edge: full-edge snap zones (left half, right half, etc.).
@@ -14,14 +14,13 @@
 //!   - Pane quadrant zone (Snap mode): resizes the dragged window to the slot rect.
 //!   - Screen edge zone: resizes the dragged window to the edge rect.
 //!   - Beside a window (proximity snap): resizes both windows to equal halves.
-//!   - Stack zone: moves dragged window to exactly match the target.
 //!
 //! **Opt+Cmd drag** — legacy single-split resize.
 
 mod mod_target;
 
-use crate::app::{lock_state, AppState, PendingSplitResize};
 use crate::app::TilingMode;
+use crate::app::{lock_state, AppState, PendingSplitResize};
 use log::info;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -29,10 +28,10 @@ use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
 use objc2_foundation::MainThreadMarker;
 use std::sync::{Arc, Mutex};
 use tile_core::layout::{detect_snap_zone, snap_zone_rect, SnapZone};
-use tile_core::{AXWindowRef, ManagedWindow, Node, Orientation, Rect, SnapSide, TileTree};
+use tile_core::{AppInfo, ManagedWindow, Node, Orientation, Rect, SnapSide};
 
-pub(crate) use mod_target::PendingModDrag;
 use mod_target::find_mod_drag_target;
+pub(crate) use mod_target::PendingModDrag;
 
 /// Pixels from a split divider centre that counts as a hit.
 const SPLIT_HIT_THRESHOLD: f64 = 8.0;
@@ -48,7 +47,7 @@ impl DragMonitor {
     pub fn new(mtm: MainThreadMarker, state: Arc<Mutex<AppState>>) -> Self {
         let state_down = state.clone();
         let state_drag = state.clone();
-        let state_up   = state.clone();
+        let state_up = state.clone();
 
         let down_monitor = {
             let mask = NSEventMask::LeftMouseDown;
@@ -63,13 +62,13 @@ impl DragMonitor {
             let mask = NSEventMask::LeftMouseDragged;
             let handler = block2::RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
                 let event = unsafe { event.as_ref() };
-                let loc   = event.locationInWindow();
+                let loc = event.locationInWindow();
                 let flags = event.modifierFlags();
-                let opt_ctrl = NSEventModifierFlags::Option.union(NSEventModifierFlags::Control);
-                let opt_cmd  = NSEventModifierFlags::Option.union(NSEventModifierFlags::Command);
+                let ctrl_cmd = NSEventModifierFlags::Control.union(NSEventModifierFlags::Command);
+                let opt_cmd = NSEventModifierFlags::Option.union(NSEventModifierFlags::Command);
                 if flags.contains(opt_cmd) {
                     handle_legacy_resize_drag(&state_drag, loc.x, loc.y);
-                } else if flags.contains(opt_ctrl) {
+                } else if flags.contains(ctrl_cmd) {
                     handle_snap_drag(&state_drag, loc.x, loc.y, mtm);
                 } else {
                     handle_split_drag(&state_drag, loc.x, loc.y);
@@ -83,11 +82,11 @@ impl DragMonitor {
             let handler = block2::RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
                 let event = unsafe { event.as_ref() };
                 let flags = event.modifierFlags();
-                let opt_ctrl = NSEventModifierFlags::Option.union(NSEventModifierFlags::Control);
-                let opt_cmd  = NSEventModifierFlags::Option.union(NSEventModifierFlags::Command);
+                let ctrl_cmd = NSEventModifierFlags::Control.union(NSEventModifierFlags::Command);
+                let opt_cmd = NSEventModifierFlags::Option.union(NSEventModifierFlags::Command);
                 if flags.contains(opt_cmd) {
                     handle_legacy_resize_end(&state_up);
-                } else if flags.contains(opt_ctrl) {
+                } else if flags.contains(ctrl_cmd) {
                     let loc = event.locationInWindow();
                     handle_snap_end(&state_up, loc.x, loc.y);
                 } else {
@@ -113,6 +112,14 @@ fn handle_mouse_down(state: &Arc<Mutex<AppState>>, x: f64, y: f64) {
         None => return,
     };
     let mut st = lock_state(state);
+    if st.paused {
+        return;
+    }
+    st.pending_dragged_window_raw = tile_ax::get_frontmost_window().map(|(raw_element, _, _)| {
+        let raw = raw_element as usize;
+        tile_ax::release_frontmost_window(raw_element);
+        raw
+    });
     if st.tiling_mode != TilingMode::Bsp {
         return;
     }
@@ -147,6 +154,9 @@ fn handle_split_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64) {
         None => return,
     };
     let mut st = lock_state(state);
+    if st.paused {
+        return;
+    }
     let pending = match st.pending_split_resize {
         Some(p) => p,
         None => return,
@@ -170,10 +180,11 @@ fn handle_split_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64) {
 fn handle_drag_end(state: &Arc<Mutex<AppState>>) {
     let mut st = lock_state(state);
     st.pending_split_resize = None;
+    st.pending_dragged_window_raw = None;
     st.overlay.hide();
 }
 
-// ── Opt+Ctrl drag: VSCode-style drop zone preview ────────────────────────
+// ── Ctrl+Cmd drag: VSCode-style drop zone preview ────────────────────────
 
 fn handle_snap_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64, mtm: MainThreadMarker) {
     let screen = match tile_ax::get_usable_screen_frame(0) {
@@ -183,15 +194,31 @@ fn handle_snap_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64, mtm: MainThrea
     let ax_y = screen.y + screen.height - y;
     let windows = tile_ax::list_visible_windows();
     let mut st = lock_state(state);
+    if st.paused {
+        return;
+    }
+    if st.pending_dragged_window_raw.is_none() {
+        st.pending_dragged_window_raw = match tile_ax::get_frontmost_window() {
+            Some((raw_element, _, _)) => {
+                let raw = raw_element as usize;
+                tile_ax::release_frontmost_window(raw_element);
+                Some(raw)
+            }
+            None => None,
+        };
+    }
+    let dragged_window_raw = st.pending_dragged_window_raw;
 
-    // Priority 1: window-proximity snap (snap-beside / stack-onto)
-    if let Some(target) = find_mod_drag_target(x, ax_y, &windows) {
+    // Priority 1: window-proximity snap (snap-beside)
+    if let Some(target) = find_mod_drag_target(x, ax_y, &windows, dragged_window_raw) {
         let overlay_rect = match &target {
-            PendingModDrag::SnapBeside { target_frame, .. } => {
+            PendingModDrag::SnapBeside {
+                target_frame, ..
+            } => {
                 let half_w = screen.width / 2.0;
                 Rect::new(screen.x, target_frame.y, half_w, target_frame.height)
             }
-            PendingModDrag::StackOnto { target_frame } => target_frame.inset(20.0),
+            PendingModDrag::StackOnto { target_frame, .. } => target_frame.inset(20.0),
         };
         st.overlay.show(overlay_rect, mtm);
         st.pending_mod_drag = Some(target);
@@ -212,57 +239,172 @@ fn handle_snap_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64, mtm: MainThrea
     }
 }
 
-// ── Opt+Ctrl mouse-up: apply the drop ────────────────────────────────────
+// ── Ctrl+Cmd mouse-up: apply the drop ────────────────────────────────────
 
 fn handle_snap_end(state: &Arc<Mutex<AppState>>, _x: f64, _y: f64) {
     // Grab pending state and hide overlay while holding the lock.
     let (pending_mod, pending_zone, tiling_mode) = {
         let mut st = lock_state(state);
+        if st.paused {
+            st.overlay.hide();
+            st.pending_mod_drag = None;
+            st.pending_snap_zone = None;
+            st.pending_dragged_window_raw = None;
+            return;
+        }
         st.overlay.hide();
-        (st.pending_mod_drag.take(), st.pending_snap_zone.take(), st.tiling_mode)
+        (
+            st.pending_mod_drag.take(),
+            st.pending_snap_zone.take(),
+            st.tiling_mode,
+        )
     };
 
-    // ── Path 1: proximity snap (snap-beside / stack-onto) ─────────────────
+    // ── Path 1: proximity snap (snap-beside) ───────────────────────────────
     if let Some(target) = pending_mod {
-        let window_info = match tile_ax::get_frontmost_window() {
+        let source_raw = {
+            let mut st = lock_state(state);
+            st.pending_dragged_window_raw.take()
+        };
+        let source_raw = match source_raw {
+            Some(raw) => raw,
+            None => return,
+        };
+        let windows = tile_ax::list_visible_windows();
+        let source_info = match windows.iter().find(|w| w.ax_ref.raw == source_raw) {
             Some(info) => info,
             None => return,
         };
-        let (raw_element, _ax_ref, app_info) = window_info;
+        let app_info = AppInfo {
+            pid: source_info.pid,
+            name: source_info.app_name.clone(),
+            bundle_id: None,
+        };
 
         match target {
-            PendingModDrag::SnapBeside { target_frame, side } => {
+            PendingModDrag::SnapBeside {
+                target_raw,
+                target_frame,
+                side,
+            } => {
                 let screen = match tile_ax::get_usable_screen_frame(0) {
                     Some(s) => s,
-                    None => { tile_ax::release_frontmost_window(raw_element); return; }
+                    None => return,
                 };
-                let half_w = screen.width / 2.0;
-                let (source_frame, target_new_frame) = match side {
-                    SnapSide::Left => (
-                        Rect::new(screen.x,          target_frame.y, half_w, target_frame.height),
-                        Rect::new(screen.x + half_w, target_frame.y, half_w, target_frame.height),
-                    ),
-                    SnapSide::Right => (
-                        Rect::new(screen.x + half_w, target_frame.y, half_w, target_frame.height),
-                        Rect::new(screen.x,          target_frame.y, half_w, target_frame.height),
-                    ),
+                let target_info = match windows.iter().find(|w| w.ax_ref.raw == target_raw) {
+                    Some(info) => info,
+                    None => return,
                 };
-                tile_ax::set_window_frame_raw(raw_element, source_frame);
-                // Resize the target window too
-                for win in &tile_ax::list_visible_windows() {
-                    if frames_approx_equal(win.frame, target_frame) && win.pid != app_info.pid {
-                        tile_ax::set_window_frame(&win.ax_ref, target_new_frame);
-                        break;
+                let target_pane = {
+                    let mut st = lock_state(state);
+                    if let Some(pane_id) = st.tree.root.find_pane_by_raw_window(target_raw) {
+                        Some(pane_id)
+                    } else {
+                        let managed = ManagedWindow::new(
+                            target_info.ax_ref.clone(),
+                            target_info.pid,
+                            target_info.app_name.clone(),
+                            target_info.app_name.clone(),
+                            target_info.frame,
+                        );
+                        Some(st.tree.add_window(managed))
                     }
+                };
+
+                if let Some(pane_id) = target_pane {
+                    let orientation = if target_frame.width >= target_frame.height {
+                        Orientation::Horizontal
+                    } else {
+                        Orientation::Vertical
+                    };
+                    let dragged_goes_second = matches!(side, SnapSide::Right);
+                    let managed = ManagedWindow::new(
+                        source_info.ax_ref.clone(),
+                        source_info.pid,
+                        source_info.app_name.clone(),
+                        source_info.app_name.clone(),
+                        source_info.frame,
+                    );
+
+                    let layout = {
+                        let mut st = lock_state(state);
+                        if let Some(window_id) =
+                            st.tree.root.find_window_id_by_raw_window(source_raw)
+                        {
+                            st.tree.remove_window(window_id);
+                        }
+                        if let Some((first_id, second_id)) =
+                            st.tree.root.split_pane(pane_id, orientation, 0.5)
+                        {
+                            let target_new_pane = if dragged_goes_second {
+                                second_id
+                            } else {
+                                st.tree.swap_panes(first_id, second_id);
+                                first_id
+                            };
+                            st.tree.root.stack_window(target_new_pane, managed);
+                            st.tree.focused_pane = Some(target_new_pane);
+                        }
+                        st.tree.compute_layout(screen)
+                    };
+
+                    let st = lock_state(state);
+                    apply_bsp_layout(&layout, &st.tree);
+                    info!("Snapped {} beside target on {:?}", app_info.name, side);
                 }
-                info!("Snapped {} beside target on {:?}", app_info.name, side);
             }
-            PendingModDrag::StackOnto { target_frame } => {
-                tile_ax::set_window_frame_raw(raw_element, target_frame);
-                info!("Stacked {} onto target", app_info.name);
+            PendingModDrag::StackOnto {
+                target_raw,
+                target_frame,
+            } => {
+                let screen = match tile_ax::get_usable_screen_frame(0) {
+                    Some(s) => s,
+                    None => return,
+                };
+                let target_info = match windows.iter().find(|w| w.ax_ref.raw == target_raw) {
+                    Some(info) => info,
+                    None => return,
+                };
+                let mut st = lock_state(state);
+                if let Some(window_id) = st.tree.root.find_window_id_by_raw_window(source_raw) {
+                    st.tree.remove_window(window_id);
+                }
+                let pane_id = if let Some(pane_id) = st.tree.root.find_pane_by_raw_window(target_raw) {
+                    pane_id
+                } else {
+                    let managed = ManagedWindow::new(
+                        target_info.ax_ref.clone(),
+                        target_info.pid,
+                        target_info.app_name.clone(),
+                        target_info.app_name.clone(),
+                        target_info.frame,
+                    );
+                    st.tree.add_window(managed)
+                };
+                let managed = ManagedWindow::new(
+                    source_info.ax_ref.clone(),
+                    source_info.pid,
+                    source_info.app_name.clone(),
+                    source_info.app_name.clone(),
+                    source_info.frame,
+                );
+                st.tree.root.stack_window(pane_id, managed);
+                st.tree.focused_pane = Some(pane_id);
+                let layout = st.tree.compute_layout(screen);
+                drop(st);
+                let st = lock_state(state);
+                apply_bsp_layout(&layout, &st.tree);
+                info!(
+                    "Stacked {} into pane {:?} at ({:.0}, {:.0}, {:.0}, {:.0})",
+                    app_info.name,
+                    pane_id,
+                    target_frame.x,
+                    target_frame.y,
+                    target_frame.width,
+                    target_frame.height
+                );
             }
         }
-        tile_ax::release_frontmost_window(raw_element);
         return;
     }
 
@@ -270,59 +412,68 @@ fn handle_snap_end(state: &Arc<Mutex<AppState>>, _x: f64, _y: f64) {
     if let Some(zone) = pending_zone {
         apply_snap_zone_drop(state, zone, tiling_mode);
     }
+    let mut st = lock_state(state);
+    st.pending_dragged_window_raw = None;
 }
 
-/// Apply a snap-zone drop. For BSP pane zones this splits the tree; for
-/// screen-edge zones it just resizes the window.
-fn apply_snap_zone_drop(state: &Arc<Mutex<AppState>>, zone: SnapZone, tiling_mode: TilingMode) {
-    let window_info = match tile_ax::get_frontmost_window() {
+/// Apply a snap-zone drop. Pane zones mutate the tree; edge zones still resize
+/// the floating window slot.
+fn apply_snap_zone_drop(state: &Arc<Mutex<AppState>>, zone: SnapZone, _tiling_mode: TilingMode) {
+    let source_raw = {
+        let mut st = lock_state(state);
+        if st.paused {
+            return;
+        }
+        st.pending_dragged_window_raw.take()
+    };
+    let source_raw = match source_raw {
+        Some(raw) => raw,
+        None => return,
+    };
+    let windows = tile_ax::list_visible_windows();
+    let source_info = match windows.iter().find(|w| w.ax_ref.raw == source_raw) {
         Some(info) => info,
         None => return,
     };
-    let (raw_element, _ax_ref, app_info) = window_info;
+    let app_info = AppInfo {
+        pid: source_info.pid,
+        name: source_info.app_name.clone(),
+        bundle_id: None,
+    };
 
     let screen = match tile_ax::get_usable_screen_frame(0) {
         Some(s) => s,
-        None => { tile_ax::release_frontmost_window(raw_element); return; }
+        None => return,
     };
 
     match zone {
-        // ── BSP pane-quadrant drop ─────────────────────────────────────────
         SnapZone::SplitLeft(pane_id)
         | SnapZone::SplitRight(pane_id)
         | SnapZone::SplitTop(pane_id)
-        | SnapZone::SplitBottom(pane_id) if tiling_mode == TilingMode::Bsp => {
+        | SnapZone::SplitBottom(pane_id) => {
             let orientation = match zone {
                 SnapZone::SplitLeft(_) | SnapZone::SplitRight(_) => Orientation::Horizontal,
                 _ => Orientation::Vertical,
             };
             // Dragged window goes into the SECOND slot for Right/Bottom,
             // FIRST slot for Left/Top (requires swapping after split).
-            let dragged_goes_second = matches!(
-                zone,
-                SnapZone::SplitRight(_) | SnapZone::SplitBottom(_)
-            );
+            let dragged_goes_second =
+                matches!(zone, SnapZone::SplitRight(_) | SnapZone::SplitBottom(_));
 
-            let current_frame = tile_ax::get_window_frame_raw(raw_element)
-                .unwrap_or(Rect::zero());
             let managed = ManagedWindow::new(
-                AXWindowRef::new(app_info.pid, 0, raw_element as usize),
+                source_info.ax_ref.clone(),
                 app_info.pid,
                 app_info.name.clone(),
                 app_info.name.clone(),
-                current_frame,
+                source_info.frame,
             );
 
             let layout = {
                 let mut st = lock_state(state);
 
-                // Remove the window from the tree if it's already managed there.
-                if let Some(existing_pane) = st.tree.root.find_pane_by_pid(app_info.pid) {
-                    if let Some(Node::Pane { tabs, .. }) = st.tree.root.find(existing_pane) {
-                        if let Some(wid) = tabs.iter().find(|w| w.pid == app_info.pid).map(|w| w.id) {
-                            st.tree.remove_window(wid);
-                        }
-                    }
+                // Remove the exact dragged window from the tree if it's already managed.
+                if let Some(window_id) = st.tree.root.find_window_id_by_raw_window(source_raw) {
+                    st.tree.remove_window(window_id);
                 }
 
                 if let Some((first_id, second_id)) =
@@ -342,38 +493,34 @@ fn apply_snap_zone_drop(state: &Arc<Mutex<AppState>>, zone: SnapZone, tiling_mod
                 st.tree.compute_layout(screen)
             };
 
-            // Apply all frames (both windows resize to fill their slots).
             let st = lock_state(state);
             apply_bsp_layout(&layout, &st.tree);
             drop(st);
 
-            info!(
-                "BSP drop: {} into {:?} pane {:?}",
-                app_info.name, zone, pane_id
-            );
-        }
-
-        // ── Pane quadrant in Snap mode — just resize to the slot ──────────
-        SnapZone::SplitLeft(pane_id)
-        | SnapZone::SplitRight(pane_id)
-        | SnapZone::SplitTop(pane_id)
-        | SnapZone::SplitBottom(pane_id) => {
-            let st = lock_state(state);
-            let pane_rects = st.tree.compute_layout(screen);
-            drop(st);
-            let frame = snap_zone_rect(&zone, screen, &pane_rects);
-            tile_ax::set_window_frame_raw(raw_element, frame);
-            info!("Snap drop: {} → slot of pane {:?}", app_info.name, pane_id);
+            info!("Tree drop: {} into {:?} pane {:?}", app_info.name, zone, pane_id);
         }
 
         // ── Stack onto an existing pane ────────────────────────────────────
-        SnapZone::Stack(_pane_id) => {
-            let st = lock_state(state);
-            let pane_rects = st.tree.compute_layout(screen);
-            drop(st);
-            let frame = snap_zone_rect(&zone, screen, &pane_rects);
-            tile_ax::set_window_frame_raw(raw_element, frame);
-            info!("Stack drop: {} onto pane", app_info.name);
+        SnapZone::Stack(pane_id) => {
+            let mut st = lock_state(state);
+            if let Some(window_id) = st.tree.root.find_window_id_by_raw_window(source_raw) {
+                st.tree.remove_window(window_id);
+            }
+            let managed = ManagedWindow::new(
+                source_info.ax_ref.clone(),
+                app_info.pid,
+                app_info.name.clone(),
+                app_info.name.clone(),
+                source_info.frame,
+            );
+            if st.tree.root.stack_window(pane_id, managed) {
+                st.tree.focused_pane = Some(pane_id);
+                let pane_rects = st.tree.compute_layout(screen);
+                let frame = snap_zone_rect(&zone, screen, &pane_rects);
+                drop(st);
+                tile_ax::set_window_frame(&source_info.ax_ref, frame);
+                info!("Stack drop: {} onto pane {:?}", app_info.name, pane_id);
+            }
         }
 
         // ── Screen-edge zones: resize window to the edge slot ─────────────
@@ -382,19 +529,10 @@ fn apply_snap_zone_drop(state: &Arc<Mutex<AppState>>, zone: SnapZone, tiling_mod
             let pane_rects = st.tree.compute_layout(screen);
             drop(st);
             let frame = snap_zone_rect(&zone, screen, &pane_rects);
-            tile_ax::set_window_frame_raw(raw_element, frame);
+            tile_ax::set_window_frame(&source_info.ax_ref, frame);
             info!("Edge drop: {} → {:?}", app_info.name, zone);
         }
     }
-
-    tile_ax::release_frontmost_window(raw_element);
-}
-
-fn frames_approx_equal(a: Rect, b: Rect) -> bool {
-    (a.x - b.x).abs() < 4.0
-        && (a.y - b.y).abs() < 4.0
-        && (a.width - b.width).abs() < 4.0
-        && (a.height - b.height).abs() < 4.0
 }
 
 // ── BSP layout application ────────────────────────────────────────────────
@@ -417,7 +555,12 @@ fn handle_legacy_resize_drag(state: &Arc<Mutex<AppState>>, x: f64, y: f64) {
         None => return,
     };
     let mut st = lock_state(state);
-    if st.tiling_mode != TilingMode::Bsp { return; }
+    if st.paused {
+        return;
+    }
+    if st.tiling_mode != TilingMode::Bsp {
+        return;
+    }
     let split_id = match st.tree.root.first_split_id() {
         Some(id) => id,
         None => return,
@@ -438,4 +581,5 @@ fn handle_legacy_resize_end(state: &Arc<Mutex<AppState>>) {
     let mut st = lock_state(state);
     st.multiplexer.shared_resize.last_cursor = None;
     st.multiplexer.shared_resize.split_id = None;
+    st.pending_dragged_window_raw = None;
 }

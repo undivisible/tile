@@ -89,10 +89,11 @@ pub fn get_window_frame(ax_ref: &AXWindowRef) -> Option<Rect> {
 
 /// Set the frame of a window (position + size).
 pub fn set_window_frame_raw(element: CFTypeRef, frame: Rect) {
-    // Set position first, then size (some apps need this order)
+    // Try to pin the size first so apps that anchor to the current position
+    // still end up at the requested frame.
+    ax_set_size(element, frame.width, frame.height);
     ax_set_position(element, frame.x, frame.y);
     ax_set_size(element, frame.width, frame.height);
-    // Set position again in case the window adjusted
     ax_set_position(element, frame.x, frame.y);
 }
 
@@ -131,9 +132,8 @@ pub fn focus_window(ax_ref: &AXWindowRef) {
         let apps = workspace.runningApplications();
         for app in apps.iter() {
             if app.processIdentifier() == ax_ref.pid {
-                let _ = app.activateWithOptions(
-                    objc2_app_kit::NSApplicationActivationOptions::empty(),
-                );
+                let _ =
+                    app.activateWithOptions(objc2_app_kit::NSApplicationActivationOptions::empty());
                 break;
             }
         }
@@ -149,9 +149,7 @@ pub fn list_visible_windows() -> Vec<WindowInfo> {
 
         for app in apps.iter() {
             // Skip background-only apps
-            if app.activationPolicy()
-                == objc2_app_kit::NSApplicationActivationPolicy::Prohibited
-            {
+            if app.activationPolicy() == objc2_app_kit::NSApplicationActivationPolicy::Prohibited {
                 continue;
             }
 
@@ -182,11 +180,11 @@ pub fn list_visible_windows() -> Vec<WindowInfo> {
                     continue;
                 }
 
-                let is_minimized = ax_get_bool_attribute(win_element, K_AX_MINIMIZED_ATTRIBUTE)
-                    .unwrap_or(false);
+                let is_minimized =
+                    ax_get_bool_attribute(win_element, K_AX_MINIMIZED_ATTRIBUTE).unwrap_or(false);
 
-                let title = ax_get_string_attribute(win_element, K_AX_TITLE_ATTRIBUTE)
-                    .unwrap_or_default();
+                let title =
+                    ax_get_string_attribute(win_element, K_AX_TITLE_ATTRIBUTE).unwrap_or_default();
 
                 if let Some(frame) = get_window_frame_raw(win_element) {
                     result.push(WindowInfo {

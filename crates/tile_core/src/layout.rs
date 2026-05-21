@@ -313,20 +313,14 @@ mod tests {
     #[test]
     fn test_snap_zone_none_middle_of_screen() {
         // Well away from all edges, no panes
-        assert_eq!(
-            detect_snap_zone(960.0, 540.0, screen(), &[]),
-            None
-        );
+        assert_eq!(detect_snap_zone(960.0, 540.0, screen(), &[]), None);
     }
 
     #[test]
     fn test_snap_zone_none_just_outside_threshold() {
         let s = screen();
         // Just outside the 40px edge threshold
-        assert_eq!(
-            detect_snap_zone(s.x + 45.0, 540.0, s, &[]),
-            None
-        );
+        assert_eq!(detect_snap_zone(s.x + 45.0, 540.0, s, &[]), None);
     }
 
     // ---------------------------------------------------------------

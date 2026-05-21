@@ -174,10 +174,7 @@ impl HotkeyManager {
             };
 
             if err != 0 {
-                warn!(
-                    "Failed to register hotkey {:?}: error {}",
-                    action, err
-                );
+                warn!("Failed to register hotkey {:?}: error {}", action, err);
             } else {
                 debug!("Registered hotkey {:?}", action);
                 hotkeys.push(RegisteredHotkey { _ref: hotkey_ref });
@@ -254,10 +251,7 @@ impl HotkeyManager {
             };
 
             if err != 0 {
-                warn!(
-                    "Failed to register hotkey {:?}: error {}",
-                    action, err
-                );
+                warn!("Failed to register hotkey {:?}: error {}", action, err);
             } else {
                 debug!("Registered hotkey {:?}", action);
                 hotkeys.push(RegisteredHotkey { _ref: hotkey_ref });
@@ -276,47 +270,131 @@ impl HotkeyManager {
     fn default_bindings() -> Vec<(u32, u32, TileAction)> {
         vec![
             // Halves: Ctrl+Opt+Arrow
-            (K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY, TileAction::LeftHalf),
-            (K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY, TileAction::RightHalf),
+            (
+                K_VK_LEFT_ARROW,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::LeftHalf,
+            ),
+            (
+                K_VK_RIGHT_ARROW,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::RightHalf,
+            ),
             (K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY, TileAction::TopHalf),
-            (K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY, TileAction::BottomHalf),
+            (
+                K_VK_DOWN_ARROW,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::BottomHalf,
+            ),
             // Thirds: Ctrl+Opt+D/F/G
             (K_VK_D, CONTROL_KEY | OPTION_KEY, TileAction::LeftThird),
             (K_VK_F, CONTROL_KEY | OPTION_KEY, TileAction::CenterThird),
             (K_VK_G, CONTROL_KEY | OPTION_KEY, TileAction::RightThird),
             // Two-thirds: Ctrl+Opt+E/R/T (note: R is not standard Rectangle, but fits the pattern)
             (K_VK_E, CONTROL_KEY | OPTION_KEY, TileAction::LeftTwoThirds),
-            (K_VK_R, CONTROL_KEY | OPTION_KEY, TileAction::CenterTwoThirds),
+            (
+                K_VK_R,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::CenterTwoThirds,
+            ),
             (K_VK_T, CONTROL_KEY | OPTION_KEY, TileAction::RightTwoThirds),
             // Quarters: Ctrl+Opt+U/I/J/K
             (K_VK_U, CONTROL_KEY | OPTION_KEY, TileAction::TopLeftQuarter),
-            (K_VK_I, CONTROL_KEY | OPTION_KEY, TileAction::TopRightQuarter),
-            (K_VK_J, CONTROL_KEY | OPTION_KEY, TileAction::BottomLeftQuarter),
-            (K_VK_K, CONTROL_KEY | OPTION_KEY, TileAction::BottomRightQuarter),
+            (
+                K_VK_I,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::TopRightQuarter,
+            ),
+            (
+                K_VK_J,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::BottomLeftQuarter,
+            ),
+            (
+                K_VK_K,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::BottomRightQuarter,
+            ),
             // Special: Ctrl+Opt+Return/C/Backspace/=/Z
             (K_VK_RETURN, CONTROL_KEY | OPTION_KEY, TileAction::Maximize),
             (K_VK_C, CONTROL_KEY | OPTION_KEY, TileAction::Center),
             (K_VK_DELETE, CONTROL_KEY | OPTION_KEY, TileAction::Restore),
-            (K_VK_EQUAL, CONTROL_KEY | OPTION_KEY, TileAction::EqualizeAll),
+            (
+                K_VK_EQUAL,
+                CONTROL_KEY | OPTION_KEY,
+                TileAction::EqualizeAll,
+            ),
             (K_VK_Z, CONTROL_KEY | OPTION_KEY, TileAction::ToggleZoom),
             // Move: Ctrl+Opt+Shift+Arrow
-            (K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::MovePaneLeft),
-            (K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::MovePaneRight),
-            (K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::MovePaneUp),
-            (K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::MovePaneDown),
+            (
+                K_VK_LEFT_ARROW,
+                CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                TileAction::MovePaneLeft,
+            ),
+            (
+                K_VK_RIGHT_ARROW,
+                CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                TileAction::MovePaneRight,
+            ),
+            (
+                K_VK_UP_ARROW,
+                CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                TileAction::MovePaneUp,
+            ),
+            (
+                K_VK_DOWN_ARROW,
+                CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                TileAction::MovePaneDown,
+            ),
             // Swap: Ctrl+Opt+Cmd+Arrow
-            (K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneLeft),
-            (K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneRight),
-            (K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneUp),
-            (K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY, TileAction::SwapPaneDown),
+            (
+                K_VK_LEFT_ARROW,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY,
+                TileAction::SwapPaneLeft,
+            ),
+            (
+                K_VK_RIGHT_ARROW,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY,
+                TileAction::SwapPaneRight,
+            ),
+            (
+                K_VK_UP_ARROW,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY,
+                TileAction::SwapPaneUp,
+            ),
+            (
+                K_VK_DOWN_ARROW,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY,
+                TileAction::SwapPaneDown,
+            ),
             // Move between displays: Ctrl+Opt+Cmd+Shift+Left/Right
-            (K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY, TileAction::MoveToPreviousDisplay),
-            (K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY, TileAction::MoveToNextDisplay),
+            (
+                K_VK_LEFT_ARROW,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY,
+                TileAction::MoveToPreviousDisplay,
+            ),
+            (
+                K_VK_RIGHT_ARROW,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY,
+                TileAction::MoveToNextDisplay,
+            ),
             // Undo: Ctrl+Opt+Shift+Z
-            (K_VK_Z, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::UndoLastAction),
+            (
+                K_VK_Z,
+                CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                TileAction::UndoLastAction,
+            ),
             // Multiplexer controls
-            (K_VK_M, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY, TileAction::ToggleMultiplexerMode),
-            (K_VK_M, CONTROL_KEY | OPTION_KEY | SHIFT_KEY, TileAction::SetMultiplexerRegionFromFrontmost),
+            (
+                K_VK_M,
+                CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY,
+                TileAction::ToggleMultiplexerMode,
+            ),
+            (
+                K_VK_M,
+                CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+                TileAction::SetMultiplexerRegionFromFrontmost,
+            ),
         ]
     }
 }
@@ -346,8 +424,7 @@ impl ScrollMonitor {
         let handler = block2::RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
             let event = unsafe { event.as_ref() };
             let flags = event.modifierFlags();
-            let opt_ctrl = NSEventModifierFlags::Option
-                .union(NSEventModifierFlags::Control);
+            let opt_ctrl = NSEventModifierFlags::Option.union(NSEventModifierFlags::Control);
             // Check that both Opt and Ctrl are held
             if !flags.contains(opt_ctrl) {
                 return;
@@ -365,12 +442,9 @@ impl ScrollMonitor {
                 (callback)(TileAction::StackNext);
             }
         });
-        let monitor =
-            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &handler);
+        let monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &handler);
         info!("Scroll monitor for stack cycling registered");
-        Self {
-            _monitor: monitor,
-        }
+        Self { _monitor: monitor }
     }
 }
 

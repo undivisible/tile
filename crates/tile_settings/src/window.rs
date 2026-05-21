@@ -2,14 +2,15 @@
 
 use crepuscularity_gpui::prelude::*;
 use gpui::{
-    point, px, size, uniform_list, App, Bounds, ClickEvent, SharedString,
-    UniformListScrollHandle, Window, WindowBounds, WindowKind, WindowOptions,
-    TitlebarOptions,
+    point, px, size, uniform_list, App, Bounds, ClickEvent, DispatchPhase, Entity, KeyDownEvent,
+    SharedString, TitlebarOptions, UniformListScrollHandle, Window, WindowBounds, WindowKind,
+    WindowOptions,
 };
 use log::info;
 
 use crate::config::{
-    action_display_name, action_group, format_binding, TileConfig, TilingModeConfig,
+    action_display_name, action_group, binding_from_keystroke, format_binding, TileConfig,
+    TilingModeConfig,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub enum TilePanel {
 
 #[derive(Debug, Clone)]
 struct BindingRow {
+    action_name: String,
     display_name: String,
     group: &'static str,
     shortcut_text: String,
@@ -27,40 +29,100 @@ struct BindingRow {
 
 pub struct SettingsWindow {
     config: TileConfig,
-    rows: Vec<BindingRow>,
     scroll_handle: UniformListScrollHandle,
+    recording_action: Option<String>,
 }
 
 impl SettingsWindow {
     pub fn new(config: TileConfig) -> Self {
         Self {
-            rows: build_rows(&config),
             config,
             scroll_handle: UniformListScrollHandle::new(),
+            recording_action: None,
         }
     }
 
-    fn reset_defaults(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.config = TileConfig::default();
-        self.rows = build_rows(&self.config);
-        info!("Reset keybindings to defaults");
-        cx.notify();
-    }
-
-    fn save(&mut self, _: &ClickEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn save_config(&self) {
         match self.config.save() {
             Ok(()) => info!("Settings saved"),
             Err(e) => log::error!("Failed to save config: {}", e),
         }
     }
 
+    fn reset_defaults(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.config = TileConfig::default();
+        self.recording_action = None;
+        self.save_config();
+        info!("Reset keybindings to defaults");
+        cx.notify();
+    }
+
+    fn save(&mut self, _: &ClickEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+        self.save_config();
+    }
+
     fn set_mode_snap(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.config.tiling_mode = TilingModeConfig::Snap;
+        self.save_config();
         cx.notify();
     }
 
     fn set_mode_bsp(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.config.tiling_mode = TilingModeConfig::Bsp;
+        self.save_config();
+        cx.notify();
+    }
+
+    fn toggle_recording(
+        &mut self,
+        action_name: String,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.recording_action.as_deref() == Some(action_name.as_str()) {
+            self.recording_action = None;
+        } else {
+            self.recording_action = Some(action_name);
+        }
+        cx.notify();
+    }
+
+    fn handle_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        phase: DispatchPhase,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !phase.bubble() {
+            return;
+        }
+
+        let Some(action_name) = self.recording_action.clone() else {
+            return;
+        };
+
+        cx.stop_propagation();
+
+        if event.is_held {
+            return;
+        }
+
+        if event.keystroke.key.eq_ignore_ascii_case("escape") {
+            self.recording_action = None;
+            cx.notify();
+            return;
+        }
+
+        let Some(binding) = binding_from_keystroke(&event.keystroke) else {
+            log::warn!("Unsupported key while recording binding: {:?}", event.keystroke);
+            return;
+        };
+
+        self.config.set_binding(&action_name, binding);
+        self.recording_action = None;
+        self.save_config();
         cx.notify();
     }
 }
@@ -108,13 +170,19 @@ impl Render for AboutWindow {
 }
 
 impl Render for SettingsWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let row_count = self.rows.len();
-        let rows = self.rows.clone();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = build_rows(&self.config);
+        let row_count = rows.len();
         let outer_gap = format!("{:.0}px", self.config.gap_outer);
         let inner_gap = format!("{:.0}px", self.config.gap_inner);
         let is_snap = self.config.tiling_mode == TilingModeConfig::Snap;
-        let is_bsp  = self.config.tiling_mode == TilingModeConfig::Bsp;
+        let is_bsp = self.config.tiling_mode == TilingModeConfig::Bsp;
+        let recording_action = self.recording_action.clone();
+        let recording_action_for_list = recording_action.clone();
+        let recording_action_for_banner = recording_action.clone();
+        let entity = cx.entity();
+        let key_entity = entity.clone();
+        let list_entity = entity.clone();
 
         let save_button = div()
             .id("save-btn")
@@ -146,8 +214,16 @@ impl Render for SettingsWindow {
             .id("mode-snap")
             .px(px(14.0))
             .py(px(6.0))
-            .bg(if is_snap { rgb(0x89b4fa) } else { rgb(0x27272a) })
-            .text_color(if is_snap { rgb(0x1e1e2e) } else { rgb(0xa1a1aa) })
+            .bg(if is_snap {
+                rgb(0x89b4fa)
+            } else {
+                rgb(0x27272a)
+            })
+            .text_color(if is_snap {
+                rgb(0x1e1e2e)
+            } else {
+                rgb(0xa1a1aa)
+            })
             .rounded(px(6.0))
             .cursor_pointer()
             .text_size(px(12.0))
@@ -169,12 +245,41 @@ impl Render for SettingsWindow {
             .on_click(cx.listener(Self::set_mode_bsp))
             .child("BSP");
 
+        if recording_action.is_some() {
+            window.on_key_event(move |event: &KeyDownEvent, phase, window, app| {
+                key_entity.update(app, |this, cx| this.handle_key_down(event, phase, window, cx));
+            });
+        }
+
         let list = uniform_list("keybindings", row_count, move |range, _window, _cx| {
             range
-                .map(|ix| render_row(ix, &rows[ix]))
+                .map(|ix| {
+                    let row = &rows[ix];
+                    render_row(
+                        ix,
+                        row,
+                        recording_action_for_list.as_deref(),
+                        list_entity.clone(),
+                    )
+                })
                 .collect()
         })
         .track_scroll(self.scroll_handle.clone());
+
+        let recording_banner = if let Some(action) = recording_action_for_banner.as_ref() {
+            div()
+                .px(px(12.0))
+                .py(px(8.0))
+                .rounded(px(8.0))
+                .bg(rgb(0x3f2e14))
+                .border_1()
+                .border_color(rgb(0xe0a94f))
+                .text_color(rgb(0xf5d08a))
+                .text_size(px(12.0))
+                .child(format!("Recording {action}. Press a key or Escape to cancel."))
+        } else {
+            div()
+        };
 
         view! {r#"
             div w-full h-full bg-zinc-950 text-zinc-100 flex flex-col
@@ -195,14 +300,15 @@ impl Render for SettingsWindow {
                         {snap_btn}
                         {bsp_btn}
                     div text-xs text-zinc-500 leading-relaxed max-w-[500px]
-                        "Snap: use hotkeys to position windows. BSP: all windows are auto-tiled in a persistent grid — drag dividers to resize, Opt+Ctrl drag to snap beside. Restart Tile after changing."
+                        "Snap: use hotkeys to position windows. BSP: all windows are auto-tiled in a persistent grid, with draggable dividers and Ctrl+Cmd drag to snap beside."
+                    {recording_banner}
 
                 div px-5 py-2 border-b border-zinc-800 flex text-xs uppercase tracking-widest text-zinc-500
                     div w-[110px]
                         "Group"
                     div flex-1
                         "Action"
-                    div w-[210px]
+                    div w-[220px] text-right
                         "Shortcut"
 
                 div flex-1
@@ -233,6 +339,7 @@ fn build_rows(config: &TileConfig) -> Vec<BindingRow> {
         for (name, binding) in &config.bindings {
             if action_group(name) == *group {
                 rows.push(BindingRow {
+                    action_name: name.clone(),
                     display_name: action_display_name(name),
                     group,
                     shortcut_text: format_binding(binding),
@@ -243,12 +350,34 @@ fn build_rows(config: &TileConfig) -> Vec<BindingRow> {
     rows
 }
 
-fn render_row(ix: usize, row: &BindingRow) -> impl IntoElement {
+fn render_row(
+    ix: usize,
+    row: &BindingRow,
+    recording_action: Option<&str>,
+    entity: Entity<SettingsWindow>,
+) -> impl IntoElement {
     let bg = if ix.is_multiple_of(2) {
         rgb(0x12161d)
     } else {
         rgb(0x171b23)
     };
+    let is_recording = recording_action == Some(row.action_name.as_str());
+    let shortcut_text = if is_recording {
+        "Press a key or Escape".to_string()
+    } else {
+        row.shortcut_text.clone()
+    };
+    let button_bg = if is_recording {
+        rgb(0xe0a94f)
+    } else {
+        rgb(0x27272a)
+    };
+    let button_fg = if is_recording {
+        rgb(0x1e1e2e)
+    } else {
+        rgb(0xe4e4e7)
+    };
+    let action_name = row.action_name.clone();
 
     div()
         .flex()
@@ -271,15 +400,26 @@ fn render_row(ix: usize, row: &BindingRow) -> impl IntoElement {
         )
         .child(
             div()
-                .w(px(210.0))
+                .w(px(220.0))
+                .flex()
+                .justify_end()
                 .child(
                     div()
+                        .id(("binding", ix))
                         .px(px(8.0))
                         .py(px(2.0))
-                        .bg(rgb(0x27272a))
+                        .bg(button_bg)
                         .rounded(px(4.0))
+                        .cursor_pointer()
                         .text_size(px(12.0))
-                        .child(SharedString::from(row.shortcut_text.clone())),
+                        .text_color(button_fg)
+                        .hover(|s| s.opacity(0.82))
+                        .on_click(move |event: &ClickEvent, window, app| {
+                            entity.update(app, |this, cx| {
+                                this.toggle_recording(action_name.clone(), event, window, cx)
+                            });
+                        })
+                        .child(SharedString::from(shortcut_text)),
                 ),
         )
 }

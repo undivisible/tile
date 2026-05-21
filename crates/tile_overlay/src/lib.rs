@@ -14,16 +14,25 @@ use tile_core::Rect;
 /// We can't use objc2's msg_send! because it rejects CGColorRef (opaque C type).
 /// We also can't declare objc_msgSend as variadic — ARM64 uses different calling
 /// conventions for variadic vs non-variadic functions.
-unsafe fn layer_set_cgcolor(layer: &objc2::runtime::AnyObject, sel: objc2::runtime::Sel, color: core_graphics::sys::CGColorRef) {
+unsafe fn layer_set_cgcolor(
+    layer: &objc2::runtime::AnyObject,
+    sel: objc2::runtime::Sel,
+    color: core_graphics::sys::CGColorRef,
+) {
     // Cast objc_msgSend to the exact signature CALayer expects: (id, SEL, CGColorRef) -> void
-    type SetColorFn = unsafe extern "C" fn(*const objc2::runtime::AnyObject, objc2::runtime::Sel, core_graphics::sys::CGColorRef);
+    type SetColorFn = unsafe extern "C" fn(
+        *const objc2::runtime::AnyObject,
+        objc2::runtime::Sel,
+        core_graphics::sys::CGColorRef,
+    );
     let msg_send: SetColorFn = std::mem::transmute(objc2::ffi::objc_msgSend as *const ());
     msg_send(layer as *const _, sel, color);
 }
 
 /// Set an f64 property on a CALayer.
 unsafe fn layer_set_f64(layer: &objc2::runtime::AnyObject, sel: objc2::runtime::Sel, value: f64) {
-    type SetF64Fn = unsafe extern "C" fn(*const objc2::runtime::AnyObject, objc2::runtime::Sel, f64);
+    type SetF64Fn =
+        unsafe extern "C" fn(*const objc2::runtime::AnyObject, objc2::runtime::Sel, f64);
     let msg_send: SetF64Fn = std::mem::transmute(objc2::ffi::objc_msgSend as *const ());
     msg_send(layer as *const _, sel, value);
 }
@@ -31,10 +40,10 @@ unsafe fn layer_set_f64(layer: &objc2::runtime::AnyObject, sel: objc2::runtime::
 /// Configuration for overlay appearance.
 #[derive(Debug, Clone)]
 pub struct OverlayConfig {
-    pub color: (f64, f64, f64, f64),         // RGBA
+    pub color: (f64, f64, f64, f64), // RGBA
     pub corner_radius: f64,
     pub border_width: f64,
-    pub border_color: (f64, f64, f64, f64),  // RGBA
+    pub border_color: (f64, f64, f64, f64), // RGBA
 }
 
 impl Default for OverlayConfig {
@@ -89,10 +98,7 @@ impl OverlayManager {
 
     /// Check if the overlay is currently visible.
     pub fn is_visible(&self) -> bool {
-        self.window
-            .as_ref()
-            .map(|w| w.isVisible())
-            .unwrap_or(false)
+        self.window.as_ref().map(|w| w.isVisible()).unwrap_or(false)
     }
 
     fn get_or_create_window(&mut self, mtm: MainThreadMarker) -> &Retained<NSWindow> {
@@ -116,13 +122,15 @@ fn create_overlay_window(config: &OverlayConfig, mtm: MainThreadMarker) -> Retai
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(100.0, 100.0));
     let style = NSWindowStyleMask::Borderless;
 
-    let window = unsafe { NSWindow::initWithContentRect_styleMask_backing_defer(
-        mtm.alloc::<NSWindow>(),
-        frame,
-        style,
-        objc2_app_kit::NSBackingStoreType::Buffered,
-        false,
-    ) };
+    let window = unsafe {
+        NSWindow::initWithContentRect_styleMask_backing_defer(
+            mtm.alloc::<NSWindow>(),
+            frame,
+            style,
+            objc2_app_kit::NSBackingStoreType::Buffered,
+            false,
+        )
+    };
 
     // Configure for overlay use
     window.setLevel(1001); // Above screen saver level
@@ -145,7 +153,11 @@ fn create_overlay_window(config: &OverlayConfig, mtm: MainThreadMarker) -> Retai
 }
 
 /// Create an NSView that renders the overlay via CALayer properties.
-fn create_overlay_view(config: &OverlayConfig, frame: NSRect, mtm: MainThreadMarker) -> Retained<NSView> {
+fn create_overlay_view(
+    config: &OverlayConfig,
+    frame: NSRect,
+    mtm: MainThreadMarker,
+) -> Retained<NSView> {
     let view = NSView::initWithFrame(mtm.alloc::<NSView>(), frame);
     view.setWantsLayer(true);
 
@@ -157,7 +169,11 @@ fn create_overlay_view(config: &OverlayConfig, frame: NSRect, mtm: MainThreadMar
             config.color.3,
         );
         unsafe {
-            layer_set_cgcolor(&layer, objc2::sel!(setBackgroundColor:), bg_color.as_concrete_TypeRef());
+            layer_set_cgcolor(
+                &layer,
+                objc2::sel!(setBackgroundColor:),
+                bg_color.as_concrete_TypeRef(),
+            );
             layer_set_f64(&layer, objc2::sel!(setCornerRadius:), config.corner_radius);
         }
 
@@ -168,7 +184,11 @@ fn create_overlay_view(config: &OverlayConfig, frame: NSRect, mtm: MainThreadMar
             config.border_color.3,
         );
         unsafe {
-            layer_set_cgcolor(&layer, objc2::sel!(setBorderColor:), border_color.as_concrete_TypeRef());
+            layer_set_cgcolor(
+                &layer,
+                objc2::sel!(setBorderColor:),
+                border_color.as_concrete_TypeRef(),
+            );
             layer_set_f64(&layer, objc2::sel!(setBorderWidth:), config.border_width);
         }
     }

@@ -1,6 +1,7 @@
 //! Keybind configuration: load, save, and default bindings.
 
 use log::{info, warn};
+use gpui::Keystroke;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -91,10 +92,14 @@ impl TileConfig {
         }
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write config: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write config: {}", e))?;
         info!("Saved config to {}", path.display());
         Ok(())
+    }
+
+    /// Update the binding for the given action name.
+    pub fn set_binding(&mut self, action: &str, binding: KeyBinding) {
+        self.bindings.insert(action.to_string(), binding);
     }
 
     /// Convert to the (keycode, modifiers, TileAction) tuples that HotkeyManager expects.
@@ -157,23 +162,75 @@ pub fn default_binding_list() -> Vec<(&'static str, u32, u32)> {
         ("EqualizeAll", K_VK_EQUAL, CONTROL_KEY | OPTION_KEY),
         ("ToggleZoom", K_VK_Z, CONTROL_KEY | OPTION_KEY),
         // Move
-        ("MovePaneLeft", K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
-        ("MovePaneRight", K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
-        ("MovePaneUp", K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
-        ("MovePaneDown", K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
+        (
+            "MovePaneLeft",
+            K_VK_LEFT_ARROW,
+            CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+        ),
+        (
+            "MovePaneRight",
+            K_VK_RIGHT_ARROW,
+            CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+        ),
+        (
+            "MovePaneUp",
+            K_VK_UP_ARROW,
+            CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+        ),
+        (
+            "MovePaneDown",
+            K_VK_DOWN_ARROW,
+            CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+        ),
         // Swap
-        ("SwapPaneLeft", K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
-        ("SwapPaneRight", K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
-        ("SwapPaneUp", K_VK_UP_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
-        ("SwapPaneDown", K_VK_DOWN_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY),
+        (
+            "SwapPaneLeft",
+            K_VK_LEFT_ARROW,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY,
+        ),
+        (
+            "SwapPaneRight",
+            K_VK_RIGHT_ARROW,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY,
+        ),
+        (
+            "SwapPaneUp",
+            K_VK_UP_ARROW,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY,
+        ),
+        (
+            "SwapPaneDown",
+            K_VK_DOWN_ARROW,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY,
+        ),
         // Display movement
-        ("MoveToPreviousDisplay", K_VK_LEFT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY),
-        ("MoveToNextDisplay", K_VK_RIGHT_ARROW, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY),
+        (
+            "MoveToPreviousDisplay",
+            K_VK_LEFT_ARROW,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY,
+        ),
+        (
+            "MoveToNextDisplay",
+            K_VK_RIGHT_ARROW,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY,
+        ),
         // History
-        ("UndoLastAction", K_VK_Z, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
+        (
+            "UndoLastAction",
+            K_VK_Z,
+            CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+        ),
         // Modes
-        ("ToggleMultiplexerMode", K_VK_M, CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY),
-        ("SetMultiplexerRegionFromFrontmost", K_VK_M, CONTROL_KEY | OPTION_KEY | SHIFT_KEY),
+        (
+            "ToggleMultiplexerMode",
+            K_VK_M,
+            CONTROL_KEY | OPTION_KEY | CMD_KEY | SHIFT_KEY,
+        ),
+        (
+            "SetMultiplexerRegionFromFrontmost",
+            K_VK_M,
+            CONTROL_KEY | OPTION_KEY | SHIFT_KEY,
+        ),
     ]
 }
 
@@ -279,6 +336,86 @@ pub fn format_binding(binding: &KeyBinding) -> String {
     parts.join("+")
 }
 
+/// Convert a captured GPUI keystroke into a persistent Tile keybinding.
+pub fn binding_from_keystroke(keystroke: &Keystroke) -> Option<KeyBinding> {
+    let keycode = keycode_from_name(&keystroke.key)?;
+    Some(KeyBinding {
+        keycode,
+        modifiers: modifiers_from_keystroke(keystroke),
+    })
+}
+
+fn modifiers_from_keystroke(keystroke: &Keystroke) -> u32 {
+    let mut modifiers = 0;
+    if keystroke.modifiers.control {
+        modifiers |= CONTROL_KEY;
+    }
+    if keystroke.modifiers.alt {
+        modifiers |= OPTION_KEY;
+    }
+    if keystroke.modifiers.shift {
+        modifiers |= SHIFT_KEY;
+    }
+    if keystroke.modifiers.platform {
+        modifiers |= CMD_KEY;
+    }
+    modifiers
+}
+
+fn keycode_from_name(key: &str) -> Option<u32> {
+    use keycodes::*;
+    match key.to_ascii_lowercase().as_str() {
+        "a" => Some(K_VK_A),
+        "b" => Some(K_VK_B),
+        "c" => Some(K_VK_C),
+        "d" => Some(K_VK_D),
+        "e" => Some(K_VK_E),
+        "f" => Some(K_VK_F),
+        "g" => Some(K_VK_G),
+        "h" => Some(K_VK_H),
+        "i" => Some(K_VK_I),
+        "j" => Some(K_VK_J),
+        "k" => Some(K_VK_K),
+        "l" => Some(K_VK_L),
+        "m" => Some(K_VK_M),
+        "n" => Some(K_VK_N),
+        "o" => Some(K_VK_O),
+        "p" => Some(K_VK_P),
+        "q" => Some(K_VK_Q),
+        "r" => Some(K_VK_R),
+        "s" => Some(K_VK_S),
+        "t" => Some(K_VK_T),
+        "u" => Some(K_VK_U),
+        "v" => Some(K_VK_V),
+        "w" => Some(K_VK_W),
+        "x" => Some(K_VK_X),
+        "y" => Some(K_VK_Y),
+        "z" => Some(K_VK_Z),
+        "0" => Some(K_VK_0),
+        "1" => Some(K_VK_1),
+        "2" => Some(K_VK_2),
+        "3" => Some(K_VK_3),
+        "4" => Some(K_VK_4),
+        "5" => Some(K_VK_5),
+        "6" => Some(K_VK_6),
+        "7" => Some(K_VK_7),
+        "8" => Some(K_VK_8),
+        "9" => Some(K_VK_9),
+        "return" | "enter" => Some(K_VK_RETURN),
+        "tab" => Some(K_VK_TAB),
+        "space" => Some(K_VK_SPACE),
+        "backspace" | "delete" => Some(K_VK_DELETE),
+        "escape" | "esc" => Some(K_VK_ESCAPE),
+        "left" | "arrowleft" => Some(K_VK_LEFT_ARROW),
+        "right" | "arrowright" => Some(K_VK_RIGHT_ARROW),
+        "up" | "arrowup" => Some(K_VK_UP_ARROW),
+        "down" | "arrowdown" => Some(K_VK_DOWN_ARROW),
+        "=" | "equal" => Some(K_VK_EQUAL),
+        "-" | "minus" => Some(K_VK_MINUS),
+        _ => None,
+    }
+}
+
 /// Human-readable display name for an action.
 pub fn action_display_name(name: &str) -> String {
     // Insert spaces before capitals: "LeftHalf" → "Left Half"
@@ -315,21 +452,53 @@ pub fn action_group(name: &str) -> &'static str {
 fn keycode_name(keycode: u32) -> &'static str {
     use keycodes::*;
     match keycode {
-        K_VK_A => "A", K_VK_B => "B", K_VK_C => "C", K_VK_D => "D",
-        K_VK_E => "E", K_VK_F => "F", K_VK_G => "G", K_VK_H => "H",
-        K_VK_I => "I", K_VK_J => "J", K_VK_K => "K", K_VK_L => "L",
-        K_VK_M => "M", K_VK_N => "N", K_VK_O => "O", K_VK_P => "P",
-        K_VK_Q => "Q", K_VK_R => "R", K_VK_S => "S", K_VK_T => "T",
-        K_VK_U => "U", K_VK_V => "V", K_VK_W => "W", K_VK_X => "X",
-        K_VK_Y => "Y", K_VK_Z => "Z",
-        K_VK_0 => "0", K_VK_1 => "1", K_VK_2 => "2", K_VK_3 => "3",
-        K_VK_4 => "4", K_VK_5 => "5", K_VK_6 => "6", K_VK_7 => "7",
-        K_VK_8 => "8", K_VK_9 => "9",
-        K_VK_RETURN => "Return", K_VK_TAB => "Tab", K_VK_SPACE => "Space",
-        K_VK_DELETE => "Backspace", K_VK_ESCAPE => "Escape",
-        K_VK_LEFT_ARROW => "\u{2190}", K_VK_RIGHT_ARROW => "\u{2192}",
-        K_VK_UP_ARROW => "\u{2191}", K_VK_DOWN_ARROW => "\u{2193}",
-        K_VK_EQUAL => "=", K_VK_MINUS => "-",
+        K_VK_A => "A",
+        K_VK_B => "B",
+        K_VK_C => "C",
+        K_VK_D => "D",
+        K_VK_E => "E",
+        K_VK_F => "F",
+        K_VK_G => "G",
+        K_VK_H => "H",
+        K_VK_I => "I",
+        K_VK_J => "J",
+        K_VK_K => "K",
+        K_VK_L => "L",
+        K_VK_M => "M",
+        K_VK_N => "N",
+        K_VK_O => "O",
+        K_VK_P => "P",
+        K_VK_Q => "Q",
+        K_VK_R => "R",
+        K_VK_S => "S",
+        K_VK_T => "T",
+        K_VK_U => "U",
+        K_VK_V => "V",
+        K_VK_W => "W",
+        K_VK_X => "X",
+        K_VK_Y => "Y",
+        K_VK_Z => "Z",
+        K_VK_0 => "0",
+        K_VK_1 => "1",
+        K_VK_2 => "2",
+        K_VK_3 => "3",
+        K_VK_4 => "4",
+        K_VK_5 => "5",
+        K_VK_6 => "6",
+        K_VK_7 => "7",
+        K_VK_8 => "8",
+        K_VK_9 => "9",
+        K_VK_RETURN => "Return",
+        K_VK_TAB => "Tab",
+        K_VK_SPACE => "Space",
+        K_VK_DELETE => "Backspace",
+        K_VK_ESCAPE => "Escape",
+        K_VK_LEFT_ARROW => "\u{2190}",
+        K_VK_RIGHT_ARROW => "\u{2192}",
+        K_VK_UP_ARROW => "\u{2191}",
+        K_VK_DOWN_ARROW => "\u{2193}",
+        K_VK_EQUAL => "=",
+        K_VK_MINUS => "-",
         _ => "?",
     }
 }
@@ -423,6 +592,22 @@ mod tests {
     }
 
     #[test]
+    fn test_binding_from_keystroke() {
+        let ks = Keystroke {
+            modifiers: gpui::Modifiers {
+                control: true,
+                alt: true,
+                ..Default::default()
+            },
+            key: "left".to_string(),
+            key_char: None,
+        };
+        let binding = binding_from_keystroke(&ks).unwrap();
+        assert_eq!(binding.keycode, 0x7B);
+        assert_eq!(binding.modifiers, CONTROL_KEY | OPTION_KEY);
+    }
+
+    #[test]
     fn test_action_display_name() {
         assert_eq!(action_display_name("LeftHalf"), "Left Half");
         assert_eq!(action_display_name("TopLeftQuarter"), "Top Left Quarter");
@@ -443,9 +628,12 @@ mod tests {
     #[test]
     fn test_action_name_roundtrip() {
         let actions = [
-            TileAction::LeftHalf, TileAction::RightHalf,
-            TileAction::TopLeftQuarter, TileAction::Maximize,
-            TileAction::MovePaneLeft, TileAction::SwapPaneRight,
+            TileAction::LeftHalf,
+            TileAction::RightHalf,
+            TileAction::TopLeftQuarter,
+            TileAction::Maximize,
+            TileAction::MovePaneLeft,
+            TileAction::SwapPaneRight,
         ];
         for action in actions {
             let name = action_name(action);

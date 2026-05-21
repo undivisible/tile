@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 pub enum WindowEvent {
     Created { pid: i32 },
-    Destroyed { pid: i32 },
+    Destroyed { pid: i32, raw: usize },
     Moved { pid: i32 },
     Resized { pid: i32 },
     FocusChanged { pid: i32 },
@@ -61,7 +61,10 @@ impl WindowObserverManager {
             let mut observer: CFTypeRef = std::ptr::null();
             let err = AXObserverCreate(pid, observer_callback, &mut observer);
             if err != K_AX_ERROR_SUCCESS || observer.is_null() {
-                warn!("Failed to create AX observer for pid {}: error {}", pid, err);
+                warn!(
+                    "Failed to create AX observer for pid {}: error {}",
+                    pid, err
+                );
                 return false;
             }
 
@@ -182,7 +185,10 @@ extern "C" fn observer_callback(
 
         let event = match notif_name.as_str() {
             "AXWindowCreated" => Some(WindowEvent::Created { pid }),
-            "AXUIElementDestroyed" => Some(WindowEvent::Destroyed { pid }),
+            "AXUIElementDestroyed" => Some(WindowEvent::Destroyed {
+                pid,
+                raw: _element as usize,
+            }),
             "AXWindowMoved" => Some(WindowEvent::Moved { pid }),
             "AXWindowResized" => Some(WindowEvent::Resized { pid }),
             "AXFocusedWindowChanged" => Some(WindowEvent::FocusChanged { pid }),

@@ -372,10 +372,10 @@ mod tests {
     #[test]
     fn test_rect_contains_point_outside() {
         let r = Rect::new(10.0, 20.0, 100.0, 200.0);
-        assert!(!r.contains_point(9.0, 100.0));   // left of rect
-        assert!(!r.contains_point(111.0, 100.0));  // right of rect
-        assert!(!r.contains_point(50.0, 19.0));    // above rect
-        assert!(!r.contains_point(50.0, 221.0));   // below rect
+        assert!(!r.contains_point(9.0, 100.0)); // left of rect
+        assert!(!r.contains_point(111.0, 100.0)); // right of rect
+        assert!(!r.contains_point(50.0, 19.0)); // above rect
+        assert!(!r.contains_point(50.0, 221.0)); // below rect
     }
 
     #[test]

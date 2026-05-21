@@ -5,6 +5,7 @@ use log::warn;
 use tile_ax::WindowObserverManager;
 use tile_core::{layout::SnapZone, NodeId, Rect, TileAction, TileTree};
 use tile_overlay::{OverlayConfig, OverlayManager};
+use tile_settings::TileConfig;
 
 use crate::drag::PendingModDrag;
 
@@ -28,14 +29,18 @@ pub struct AppState {
     pub cycle_index: usize,
     pub original_frames: Vec<(i32, Rect)>,
     pub needs_relayout: bool,
-    /// Pending Opt+Ctrl drag target (snap-beside or stack-onto).
+    pub paused: bool,
+    pub config: TileConfig,
+    /// Pending Ctrl+Cmd drag target (snap-beside).
     pub pending_mod_drag: Option<PendingModDrag>,
+    /// Raw AX handle of the window being dragged for Ctrl+Cmd drag operations.
+    pub pending_dragged_window_raw: Option<usize>,
     pub tiling_mode: TilingMode,
     pub multiplexer: MultiplexerState,
     pub action_history: Vec<ActionSnapshot>,
     /// Active split-border drag (grab the divider between two BSP panes).
     pub pending_split_resize: Option<PendingSplitResize>,
-    /// Pending snap zone from the last Opt+Ctrl drag hover (screen edge or pane zone).
+    /// Pending snap zone from the last Ctrl+Cmd drag hover (screen edge or pane zone).
     pub pending_snap_zone: Option<SnapZone>,
 }
 
@@ -54,7 +59,10 @@ impl AppState {
             cycle_index: 0,
             original_frames: Vec::new(),
             needs_relayout: false,
+            paused: false,
+            config: TileConfig::default(),
             pending_mod_drag: None,
+            pending_dragged_window_raw: None,
             tiling_mode: TilingMode::Snap,
             multiplexer: MultiplexerState::default(),
             action_history: Vec::new(),

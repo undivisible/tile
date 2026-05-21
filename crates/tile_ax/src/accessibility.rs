@@ -41,8 +41,7 @@ pub const K_AX_WINDOW_ROLE: &str = "AXWindow";
 pub const K_AX_STANDARD_WINDOW_SUBROLE: &str = "AXStandardWindow";
 
 // Accessibility trust prompt key
-pub const K_AX_TRUSTED_CHECK_OPTION_PROMPT: &str =
-    "AXTrustedCheckOptionPrompt";
+pub const K_AX_TRUSTED_CHECK_OPTION_PROMPT: &str = "AXTrustedCheckOptionPrompt";
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
@@ -119,7 +118,8 @@ pub fn check_accessibility_permission() -> bool {
 /// Request accessibility permissions with a system prompt dialog.
 pub fn request_accessibility_permission() -> bool {
     let key = CFString::new(K_AX_TRUSTED_CHECK_OPTION_PROMPT);
-    let dict = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), CFBoolean::true_value().as_CFType())]);
+    let dict =
+        CFDictionary::from_CFType_pairs(&[(key.as_CFType(), CFBoolean::true_value().as_CFType())]);
     unsafe { AXIsProcessTrustedWithOptions(dict.as_concrete_TypeRef() as CFTypeRef) }
 }
 
@@ -265,8 +265,7 @@ pub fn ax_set_size(element: CFTypeRef, w: f64, h: f64) -> bool {
 pub fn ax_perform_action(element: CFTypeRef, action: &str) -> bool {
     unsafe {
         let action_str = CFString::new(action);
-        let err =
-            AXUIElementPerformAction(element, action_str.as_concrete_TypeRef() as CFTypeRef);
+        let err = AXUIElementPerformAction(element, action_str.as_concrete_TypeRef() as CFTypeRef);
         err == K_AX_ERROR_SUCCESS
     }
 }

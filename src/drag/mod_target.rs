@@ -1,32 +1,29 @@
 use tile_core::{Rect, SnapSide, WindowInfo};
 
-/// The result of an Opt+Ctrl drag detection.
+/// The result of a Ctrl+Cmd drag detection.
 #[derive(Debug, Clone)]
 pub(crate) enum PendingModDrag {
     /// Snap the dragged window beside the target window.
     SnapBeside {
+        target_raw: usize,
         target_frame: Rect,
         side: SnapSide,
     },
-    /// Stack the dragged window onto the target (same frame, as a tab).
-    StackOnto {
-        target_frame: Rect,
-    },
+    /// Stack the dragged window onto the target window's pane.
+    StackOnto { target_raw: usize, target_frame: Rect },
 }
 
-/// Find a target window under the cursor for Opt+Ctrl drag.
-/// Returns SnapBeside if cursor is at the edge, StackOnto if at center.
+/// Find a target window under the cursor for Ctrl+Cmd drag.
+/// Returns SnapBeside when the cursor is over or near another window.
 pub(crate) fn find_mod_drag_target(
     cursor_x: f64,
     cursor_y: f64,
     windows: &[WindowInfo],
+    dragged_window_raw: Option<usize>,
 ) -> Option<PendingModDrag> {
-    // Get the frontmost window's PID so we can exclude it
-    let frontmost = tile_ax::get_frontmost_app().map(|a| a.pid);
-
     for win in windows {
-        // Skip the window being dragged (same app, frontmost)
-        if Some(win.pid) == frontmost {
+        // Skip the window being dragged.
+        if dragged_window_raw == Some(win.ax_ref.raw) {
             continue;
         }
         if win.is_minimized {
@@ -35,36 +32,23 @@ pub(crate) fn find_mod_drag_target(
 
         let frame = win.frame;
         if frame.contains_point(cursor_x, cursor_y) {
-            // Determine if cursor is at center or edge
             let rx = (cursor_x - frame.x) / frame.width;
             let ry = (cursor_y - frame.y) / frame.height;
-
-            // Center region → stack
             if rx > 0.25 && rx < 0.75 && ry > 0.25 && ry < 0.75 {
                 return Some(PendingModDrag::StackOnto {
+                    target_raw: win.ax_ref.raw,
                     target_frame: frame,
                 });
             }
-
-            // Left edge → snap to left of target
-            if rx < 0.25 {
-                return Some(PendingModDrag::SnapBeside {
-                    target_frame: frame,
-                    side: SnapSide::Left,
-                });
-            }
-            // Right edge → snap to right of target
-            if rx > 0.75 {
-                return Some(PendingModDrag::SnapBeside {
-                    target_frame: frame,
-                    side: SnapSide::Right,
-                });
-            }
-
-            // Top/bottom edges also snap beside (default to right)
+            let side = if rx < 0.5 {
+                SnapSide::Left
+            } else {
+                SnapSide::Right
+            };
             return Some(PendingModDrag::SnapBeside {
+                target_raw: win.ax_ref.raw,
                 target_frame: frame,
-                side: SnapSide::Right,
+                side,
             });
         }
     }
@@ -74,7 +58,7 @@ pub(crate) fn find_mod_drag_target(
     let mut closest: Option<(f64, &WindowInfo, SnapSide)> = None;
 
     for win in windows {
-        if Some(win.pid) == frontmost || win.is_minimized {
+        if dragged_window_raw == Some(win.ax_ref.raw) || win.is_minimized {
             continue;
         }
         let frame = win.frame;
@@ -102,6 +86,7 @@ pub(crate) fn find_mod_drag_target(
     }
 
     closest.map(|(_, win, side)| PendingModDrag::SnapBeside {
+        target_raw: win.ax_ref.raw,
         target_frame: win.frame,
         side,
     })

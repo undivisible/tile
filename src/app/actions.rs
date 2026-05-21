@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use log::info;
-use tile_core::{AXWindowRef, Direction, ManagedWindow, Node, Rect, SnapSide, TileAction, TileTree};
+use tile_core::{
+    AXWindowRef, Direction, ManagedWindow, Node, Rect, SnapSide, TileAction, TileTree,
+};
 
 use super::state::{lock_state, ActionSnapshot, AppState, MultiplexerRegion, TilingMode};
 use super::window_search::find_nearest_window;
@@ -81,6 +83,16 @@ fn handle_action_inner(
             } else {
                 TilingMode::Snap
             };
+            st.config.tiling_mode = match st.tiling_mode {
+                TilingMode::Snap => tile_settings::TilingModeConfig::Snap,
+                TilingMode::Bsp => tile_settings::TilingModeConfig::Bsp,
+            };
+            if let Err(err) = st.config.save() {
+                log::warn!("Failed to save config after mode change: {}", err);
+            }
+            if st.tiling_mode == TilingMode::Bsp {
+                sync_bsp_layout_inner(&mut st, screen, Some(raw_element as usize));
+            }
             info!("Tiling mode set to {:?}", st.tiling_mode);
             return;
         }
@@ -89,6 +101,11 @@ fn handle_action_inner(
                 rect: current_frame,
             });
             st.tiling_mode = TilingMode::Bsp;
+            st.config.tiling_mode = tile_settings::TilingModeConfig::Bsp;
+            if let Err(err) = st.config.save() {
+                log::warn!("Failed to save config after setting region: {}", err);
+            }
+            sync_bsp_layout_inner(&mut st, screen, Some(raw_element as usize));
             info!(
                 "Multiplexer region set from frontmost window: ({:.0}, {:.0}, {:.0}, {:.0})",
                 current_frame.x, current_frame.y, current_frame.width, current_frame.height
@@ -171,12 +188,8 @@ fn handle_action_inner(
                 } else {
                     SnapSide::Right
                 };
-                let snap_frame = TileTree::snap_window_beside(
-                    nearest.frame,
-                    current_frame,
-                    side,
-                    screen,
-                );
+                let snap_frame =
+                    TileTree::snap_window_beside(nearest.frame, current_frame, side, screen);
                 tile_ax::set_window_frame_raw(raw_element, snap_frame);
                 info!(
                     "Snapped {} beside {} on {:?}",
@@ -207,10 +220,26 @@ fn handle_action_inner(
             };
             let src = displays[current_idx];
             let dst = displays[target_idx];
-            let rx = if src.width > 0.0 { (current_frame.x - src.x) / src.width } else { 0.0 };
-            let ry = if src.height > 0.0 { (current_frame.y - src.y) / src.height } else { 0.0 };
-            let rw = if src.width > 0.0 { current_frame.width / src.width } else { 0.5 };
-            let rh = if src.height > 0.0 { current_frame.height / src.height } else { 0.5 };
+            let rx = if src.width > 0.0 {
+                (current_frame.x - src.x) / src.width
+            } else {
+                0.0
+            };
+            let ry = if src.height > 0.0 {
+                (current_frame.y - src.y) / src.height
+            } else {
+                0.0
+            };
+            let rw = if src.width > 0.0 {
+                current_frame.width / src.width
+            } else {
+                0.5
+            };
+            let rh = if src.height > 0.0 {
+                current_frame.height / src.height
+            } else {
+                0.5
+            };
             let mapped = Rect::new(
                 dst.x + dst.width * rx,
                 dst.y + dst.height * ry,
@@ -260,7 +289,12 @@ fn handle_action_inner(
     // In BSP mode: add window to the tree if not already managed, then
     // relayout the whole grid (the hotkey action is ignored — the tree drives sizing).
     if st.tiling_mode == TilingMode::Bsp {
-        if st.tree.root.find_pane_by_pid(app_info.pid).is_none() {
+        if st
+            .tree
+            .root
+            .find_window_id_by_raw_window(raw_element as usize)
+            .is_none()
+        {
             let window = ManagedWindow::new(
                 AXWindowRef::new(app_info.pid, 0, raw_element as usize),
                 app_info.pid,
@@ -270,7 +304,11 @@ fn handle_action_inner(
             );
             st.tree.add_window(window);
         }
-        let region = st.multiplexer.active_region.map(|r| r.rect).unwrap_or(screen);
+        let region = st
+            .multiplexer
+            .active_region
+            .map(|r| r.rect)
+            .unwrap_or(screen);
         relayout(&st.tree, region);
         info!("BSP relayout triggered by hotkey for {}", app_info.name);
         return;
@@ -298,18 +336,75 @@ fn handle_action_inner(
     );
 }
 
-pub(crate) fn set_tiling_mode(state: &Arc<Mutex<AppState>>, mode: TilingMode) {
+pub(crate) fn sync_bsp_layout(
+    state: &Arc<Mutex<AppState>>,
+    screen_override: Option<Rect>,
+    focus_window_raw: Option<usize>,
+) {
     let mut st = lock_state(state);
-    st.tiling_mode = mode;
+    let screen = screen_override.unwrap_or_else(|| {
+        tile_ax::get_usable_screen_frame(0).unwrap_or(Rect::new(0.0, 0.0, 1920.0, 1080.0))
+    });
+    sync_bsp_layout_inner(&mut st, screen, focus_window_raw);
 }
 
-pub(crate) fn set_multiplexer_region(state: &Arc<Mutex<AppState>>, rect: Rect) {
-    let mut st = lock_state(state);
-    st.multiplexer.active_region = Some(MultiplexerRegion { rect });
+fn sync_bsp_layout_inner(st: &mut AppState, screen: Rect, focus_window_raw: Option<usize>) {
+    let mut visible_windows = tile_ax::list_visible_windows();
+    visible_windows.retain(|window| !window.is_minimized);
+    visible_windows.sort_by(|a, b| {
+        a.frame
+            .y
+            .partial_cmp(&b.frame.y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                a.frame
+                    .x
+                    .partial_cmp(&b.frame.x)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.pid.cmp(&b.pid))
+    });
+
+    let region = st
+        .multiplexer
+        .active_region
+        .map(|r| r.rect)
+        .unwrap_or(screen);
+    let gap_outer = st.tree.gaps.outer;
+    let gap_inner = st.tree.gaps.inner;
+
+    st.tree = TileTree::new();
+    st.tree.gaps.outer = gap_outer;
+    st.tree.gaps.inner = gap_inner;
+
+    let mut focused_pane = None;
+    for window in visible_windows {
+        let pane_id = st.tree.add_window(ManagedWindow::new(
+            window.ax_ref.clone(),
+            window.pid,
+            window.title,
+            window.app_name,
+            window.frame,
+        ));
+        if focus_window_raw == Some(window.ax_ref.raw) {
+            focused_pane = Some(pane_id);
+        }
+    }
+
+    if focused_pane.is_none() {
+        if let Some(raw) = focus_window_raw {
+            focused_pane = st.tree.root.find_pane_by_raw_window(raw);
+        }
+    }
+    st.tree.focused_pane = focused_pane.or_else(|| st.tree.root.pane_ids().first().copied());
+
+    if !st.tree.root.pane_ids().is_empty() {
+        relayout(&st.tree, region);
+    }
 }
 
 /// Apply the tiling tree layout to all managed windows.
-fn relayout(tree: &TileTree, screen: Rect) {
+pub(crate) fn relayout(tree: &TileTree, screen: Rect) {
     let layout = tree.compute_layout(screen);
     for (pane_id, rect) in &layout {
         if let Some(Node::Pane { tabs, active, .. }) = tree.root.find(*pane_id) {
